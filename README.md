@@ -47,7 +47,15 @@ where $y_i$ is the class of the ith point (0 for background, 1 for signal), $\ha
 
 We need an orthonormal basis and can use Hermite polynomials.  
  
+## To Do
 
+Use Legendre polynomials over the range -1 to 1. 
+To calculate the moments multiply the bin content by the integral of the (normalised) legendre polynomial over the range of the bin. 
+In order to compute this we cannot just use the integral of the polynomial by hand, because of numerical instabilities. Instead rely on the recursive formula.
+This takes quite some time and instead can just download the result here (https://gitlab.cern.ch/LHCb-QEE/darkphotonrun2/blob/master/prompt/bump_hunt/leg_poly.root).
+We just need to rebin. Look at code here (https://gitlab.cern.ch/LHCb-QEE/darkphotonrun2/blob/master/prompt/Fit.h)
 
+Errors on the bin content propagate to the moments (same fractional error). 
+Plot errorbars on moments. If generate data set with only one moment, only that moment should be consistent with one, the others with 0.  
 
 

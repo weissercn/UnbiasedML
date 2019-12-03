@@ -5,6 +5,7 @@ Investigating how to train a classifier such that no peaking structure is induce
 
 ## Previous work
 
+Uniform BDT (https://arxiv.org/abs/1305.7248)
 Bonsai BDT (https://arxiv.org/abs/1210.6861)
 
 ## Motivation

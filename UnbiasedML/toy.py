@@ -26,6 +26,23 @@ def plot_hist(bkgnd, sign, bins):
     #plt.show()
     plt.savefig("bkgnd.png")
 
+def plot_hist_filt(bkgnd, bkgnd_filt, bins, label):
+
+    #plt.hist(bkgnd, alpha=0.5)
+    #plt.hist([bkgnd, sign], bins=bins, histtype="barstacked", alpha=0.5, label=['bkgnd', 'sign'])
+    plt.hist(bkgnd, label="bkgnd", bins=bins, alpha=0.5)
+    plt.hist(bkgnd_filt, label="bkgnd filter", bins=bins, alpha=0.5)
+
+
+    #plt.hist([bkgnd, sign], bins=bins, histtype='step', fill=False)
+    plt.legend()
+    plt.yscale("log")
+    plt.xlabel('mass')
+    plt.ylabel('count')
+    plt.title('Events')
+    #plt.show()
+    plt.savefig("bkgnd_filt_{}.png".format(label))
+
 def poly_lin(n,nbins):
     # could use hermite, legendre, Chebychev polynomials.
     res = []
@@ -52,6 +69,9 @@ def ML_Cut(data, bins, fun, label, PLOT=False, MOMENTS= "legendre"):
 
     data_filt = fun(data)
 
+    if label== "leg3":
+        plot_hist_filt(data, data_filt, bins, label)
+
     cont_all, _ = np.histogram(data, bins=bins)
     cont_filt, _ = np.histogram(data_filt, bins=bins)
     bin_centers = 0.5*( bins[1:] + bins[:-1])
@@ -68,6 +88,8 @@ def ML_Cut(data, bins, fun, label, PLOT=False, MOMENTS= "legendre"):
     #print("cont_filt : ",cont_filt)
     #print("cont_all : ", cont_all)
     #print("frac : ", frac)      
+
+
 
 
     if MOMENTS== "legendre":
@@ -96,7 +118,7 @@ def ML_Cut(data, bins, fun, label, PLOT=False, MOMENTS= "legendre"):
             moments.append(sum(i[0] * i[1] for i in zip(frac, llin[l])))
 
     if PLOT:
-        
+        print("PLOT is True")
         fig = plt.figure() 
         ax = fig.add_subplot(1, 1, 1)
         #ax.plot(np.arange(10),12*np.arange(10)) 
@@ -105,19 +127,30 @@ def ML_Cut(data, bins, fun, label, PLOT=False, MOMENTS= "legendre"):
         #plt.plot(bin_centers, frac)
 
         plt.errorbar(bin_centers, frac , frac_errs)
-        plt.title(label)
+        plt.title("ML response: Legendre {}".format(label[-1]))
         #plt.text(60, .025, 'hi')
         ax.text(0.04, 0.92, r'moment 0 {0:.1f}'.format( moments[0] ), transform = ax.transAxes)
         ax.text(0.04, 0.84, r'moment 1 {0:.1f}'.format( moments[1] ), transform = ax.transAxes)
         ax.text(0.04, 0.76, r'moment 2 {0:.1f}'.format( moments[2] ), transform = ax.transAxes)
         ax.text(0.04, 0.68, r'moment 3 {0:.1f}'.format( moments[3] ), transform = ax.transAxes)
         plt.xlabel("mass")
-        plt.ylabel('frac passing')
+        plt.ylabel('Frac passing')
         #plt.show()
-        plt.savefig(label+".png")
+        plt.savefig("frac_"+label+".png")
         plt.clf()
 
     return moments, moment_errs
+
+def random_linear(m=1, n=1E6):
+    # y= 1 + (x-0.5)*m 
+    # produces lines that pass through (0.5,1) and are normalised between 0 and 1.
+    # the cdf of this is 
+    # (sqrt(m^2 + m (8 z - 4) + 4) + m - 2)/(2 m)
+    assert(abs(m)<=2)
+    samples = np.random.uniform(size=int(n))
+    samples = (np.sqrt(m*m + m *(8*samples - 4) + 4) + m - 2)/(2 *m)
+    return samples
+    
 
 def cut_unif(data):
     cutoff = 0.5
@@ -135,7 +168,7 @@ def cut_legendre(l):
         # assumes data is between -1 and 1
         from scipy.special import legendre
         Pn = legendre(l)
-        return [datum  for datum in data  if  2*np.random.uniform()-1<Pn(datum)]
+        return np.array([datum  for datum in data  if  2*np.random.uniform()-1<Pn(datum)])
 
     return cut_alegendre
 
@@ -181,7 +214,7 @@ def test_toy():
     bkgnd_raw = np.random.exponential(scale=0.15, size = 1000000).reshape(-1, 1)
     sign_raw  = np.random.normal(loc=0.3, scale=0.1, size = 50000).reshape(-1, 1)
 
-    plot_hist(bkgnd_raw, sign_raw, bins=np.linspace(0. ,1., 51))
+    #plot_hist(bkgnd_raw, sign_raw, bins=np.linspace(0. ,1., 51))
 
     if False:
         scaler = MinMaxScaler(feature_range=(-1, 1))
@@ -197,13 +230,14 @@ def test_toy():
 
     bins = np.linspace(-1. ,1., 51)
 
-
-    for l in range(5):
-        moments, moment_errs = ML_Cut(bkgnd, bins, cut_legendre(l), "leg{}".format(l))
+    
+    #for l in range(5):
+    for l in [3]:
+        moments, moment_errs = ML_Cut(bkgnd, bins, cut_legendre(l), "leg{}".format(l), PLOT=True)
         plot_moments( moments, moment_errs, "leg{}".format(l))
 
     print("moments : ", moments)
-
+    
 
 if __name__=="__main__":
 

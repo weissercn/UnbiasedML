@@ -7,6 +7,7 @@ __pycache__/
 W_FCN_v0.npz
 W_FCN_Readme_v0.txt
 matplotlibrc
+.W_FCN_Readme_v0.txt.swp
 plots
 # C extensions
 *.so

@@ -7,29 +7,27 @@ from scipy.optimize import minimize
 class Classifier(nn.Module):
     def __init__(self):
         super().__init__()
-        self.linear = nn.Linear(4,16)
-        self.linear2 = nn.Linear(16,32)
-        self.out = nn.Linear(32,1)
+        self.linear = nn.Linear(10,32)
+        self.linear2 = nn.Linear(32,64)
+        self.linear3 = nn.Linear(64,128)
+        self.out = nn.Linear(128,1)
         # Defaults
-        self.n_epochs = 200
-        self.optimizer = torch.optim.SGD(self.parameters(),lr=1e-1)
+        self.optimizer = torch.optim.SGD(self.parameters(),lr=1e-3)
         self.yhat_val = None
         self.yhat = None
-
     def forward(self, x):
         x = nn.functional.relu(self.linear(x))
         x = nn.functional.relu(self.linear2(x))
+        x = nn.functional.relu(self.linear3(x))
         x = torch.sigmoid(self.out(x))
         return x
 
-    def fit(self,x,y,n_epochs=None,optimizer=None,loss=None,interval=100,val_data=[],metrics=[],delay_loss=False):
-        if n_epochs:
-            self.n_epochs = n_epochs
+    def fit(self,x,y,n_epochs=200,optimizer=None,scheduler=None,loss=None,interval=100,val_data=[],metrics=None,delay_loss=False):
         if optimizer:
             self.optimizer = optimizer
         if loss:
             self.loss = loss
-        for epoch in range(self.n_epochs):
+        for epoch in range(n_epochs):
             self.train()
             self.yhat = self(x)
             if epoch<delay_loss:
@@ -39,26 +37,26 @@ class Classifier(nn.Module):
             l.backward()
             self.optimizer.step()
             self.optimizer.zero_grad()
+            if scheduler:
+                scheduler.step()
 
-            if metrics:
-                if type(metrics) == list:
-                    metrics[0].calculate(pred=self.yhat,target=y)
-                else:
-                    metrics.calculate(pred=self.yhat,target=y,l=l.item())
+            if metrics is None:
+                metrics = [Metrics(),Metrics()]
 
-        #Validation and Printing
+    #Validation and Printing
             if val_data:
-                if epoch % interval ==0 or epoch == self.n_epochs-1:
+                if epoch % interval ==0 or epoch == n_epochs-1:
                     self.train(False)
                     self.yhat_val = self(val_data[0])
                     l_val = torch.nn.MSELoss()(self.yhat_val,val_data[1] )
-                    if len(metrics)>1:
-                        metrics[1].calculate(pred=self.yhat_val,target=val_data[1],l=l_val.item())
-                    acc = metrics[0].accs[-1]
+                    
+                    metrics[0].calculate(pred=self.yhat,target=y)
+                    metrics[1].calculate(pred=self.yhat_val,target=val_data[1],l=l_val.item())
                     acc_val = metrics[1].accs[-1]
+                    acc = metrics[0].accs[-1]
                     print('Epoch:{:04d}/{:04d} || Train: loss:{:.4f}, acc:{:.0f}% || Test: loss: {:.4f}, acc:{:.0f}%'.format(
-                    epoch,n_epochs,l.item(), 100.* acc,
-                    l_val.item(), 100.* acc_val))
+                epoch,n_epochs,l.item(), 100.* acc,
+                l_val.item(), 100.* acc_val))
             else:
                 if epoch % interval ==0:
                     acc = metrics[0].accs[-1]

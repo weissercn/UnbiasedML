@@ -3,6 +3,11 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+#Data Folder
+W_FCN_v0.npz
+W_FCN_Readme_v0.txt
+matplotlibrc
+plots
 # C extensions
 *.so
 

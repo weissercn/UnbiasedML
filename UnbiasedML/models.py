@@ -92,7 +92,8 @@ class Classifier(nn.Module):
                     print(entry)
                     if log is not None:
                         log.entry(entry)
-        log.finished()
+        if log is not None:
+            log.finished()
 
 
 class WeightedMSE():
@@ -171,8 +172,10 @@ class LegendreLoss():
         self.legendre = a0 + a1*self.p1
         if self.norm == "L2":
             legendre_loss = ((self.scores - self.legendre)**2).mean()
-        else:
+        elif self.norm == "L1":
             legendre_loss = torch.abs(self.scores - self.legendre).mean()
+        else:
+            raise ValueError("{} is not a valid norm. Choose L1 or L2.hex".format(self.norm))
         return legendre_loss
 
     

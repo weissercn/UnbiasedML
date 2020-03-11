@@ -1,0 +1,2 @@
+   epochs     interval   batch_size   shuffle   num_workers  drop_last     device   pass_x_biased
+    400         100         4096         1           6           0          cpu          1      

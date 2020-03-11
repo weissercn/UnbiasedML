@@ -2,8 +2,8 @@ from datetime import datetime
 import numpy as np
 import os
 from torch.utils.data import Dataset
-
 import string
+
 class PartialFormatter(string.Formatter):
     def __init__(self, missing='~~', bad_fmt='None'):
         self.missing, self.bad_fmt=missing, bad_fmt
@@ -81,8 +81,8 @@ class Logger():
         f.close()
     def finished(self):
         f = open(self.file,"a")
-        f.write("*"*15+"Finished Training Successfully"+"*"*15)
-        f.write("\n\n\n")
+        f.write("\n"+"*"*25+"Finished Training Successfully"+"*"*25)
+        f.write("\n\n")
         f.close()
 
 class DataSet(Dataset):

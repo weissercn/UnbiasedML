@@ -10,6 +10,7 @@ matplotlibrc
 .W_FCN_Readme_v0.txt.swp
 plots
 logs
+TODO
 # C extensions
 *.so
 

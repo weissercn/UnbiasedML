@@ -4,27 +4,6 @@ import os
 from torch.utils.data import Dataset
 import string
 
-class PartialFormatter(string.Formatter):
-    def __init__(self, missing='~~', bad_fmt='None'):
-        self.missing, self.bad_fmt=missing, bad_fmt
-
-    def get_field(self, field_name, args, kwargs):
-        # Handle a key not found
-        try:
-            val=super(PartialFormatter, self).get_field(field_name, args, kwargs)
-            # Python 3, 'super().get_field(field_name, args, kwargs)' works
-        except (KeyError, AttributeError):
-            val=None,field_name
-        return val
-
-    def format_field(self, value, spec):
-        # handle an invalid format
-        if value==None: return self.missing
-        try:
-            return super(PartialFormatter, self).format_field(value, spec)
-        except ValueError:
-            if self.bad_fmt is not None: return self.bad_fmt
-            else: raise
 
 class Logger():
     def __init__(self,file="./logs/log.txt",overwrite=True):
@@ -85,19 +64,39 @@ class Logger():
         f.write("\n\n")
         f.close()
 
+class PartialFormatter(string.Formatter):
+    def __init__(self, missing='~~', bad_fmt='None'):
+        self.missing, self.bad_fmt=missing, bad_fmt
+
+    def get_field(self, field_name, args, kwargs):
+        # Handle a key not found
+        try:
+            val=super(PartialFormatter, self).get_field(field_name, args, kwargs)
+            # Python 3, 'super().get_field(field_name, args, kwargs)' works
+        except (KeyError, AttributeError):
+            val=None,field_name
+        return val
+
+    def format_field(self, value, spec):
+        # handle an invalid format
+        if value==None: return self.missing
+        try:
+            return super(PartialFormatter, self).format_field(value, spec)
+        except ValueError:
+            if self.bad_fmt is not None: return self.bad_fmt
+            else: raise
+
+
 class DataSet(Dataset):
-    'Characterizes a dataset for PyTorch'
     def __init__(self, samples,labels,m=None):
         'Initialization'
         self.labels = labels
         self.samples = samples
         self.m = m
     def __len__(self):
-        'Denotes the total number of samples'
         return len(self.labels)
 
     def __getitem__(self, index):
-        'Generates one sample of data'
         # Select sample
         X = self.samples[index]
         y = self.labels[index]
@@ -144,7 +143,21 @@ class Metrics():
             self.losses.append(l)
 
 
-def find_threshold(L, mask, x_frac):
+def find_threshold(L,mask,x_frac):
+    """
+    Calculate c such that x_frac of the array is less than c.
+
+    Parameters
+    ----------
+    L : Array
+        The array where the cutoff is to be found
+    mask : Array,
+        Mask that returns L[mask] the part of the original array over which it is desired to calculate the threshold.
+    x_frac : float
+        Of the area that is lass than or equal to c.
+
+    returns c (type=L.dtype)
+    """
     max_x = mask.sum()
     x = int(np.round(x_frac * max_x))
     L_sorted = np.sort(L[mask.astype(bool)])

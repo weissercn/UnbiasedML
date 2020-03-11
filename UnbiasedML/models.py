@@ -146,16 +146,48 @@ class Classifier(nn.Module):
 
 class WeightedMSE():
     def __init__(self,labels):
+        """
+        Mean square error loss function. Weighted such as the classifier is agnostic to label composition.
+
+        The weight of the class with label 1 is the number of 0 labels divided by the number of 1 labels. The weight of class 0 is 1.
+
+        Parameters
+        ----------
+        labels : list
+            List of labels used to calculate the composition of the different classes in the dataset.
+        """
         ones = sum(labels)
         self.ones_frac = ones/(labels.shape[0]-ones)
     def __call__(self,pred,target):
         weights = target/self.ones_frac + (1-target)
         return torch.mean(weights*(pred-target)**2)
     def __repr__(self):
-        return "Weighted MSE:  c0={:.1f}   c1={:.3f}".format(1.,1/self.ones_frac)
+        return "Weighted MSE:  c0={:.3}   c1={:.3f}".format(1.,1/self.ones_frac)
 
 class FlatLoss():
     def __init__(self,labels,frac,bins=32,recalculate=True,background_only=True,norm='L2'):
+        """
+        Wrapper for Legendre Loss and WeightedMSE.
+
+        The total flat loss = frac*LegendreLoss + (1-frac)*WeightedMSE 
+
+        Parameters
+        ----------
+        labels : list
+            List of labels passed to WeightedMSE to calculate the proportion of class labels.
+        frac : float=[0,1]
+            Between 0 and 1. Used to determine the relative strength of the flat part of the loss the MSE. 
+            Loss = frac*(LegendreLoss) + (1-frac)WeightedMSE 
+            frac = strength/(1+strength)
+        bins : int
+            Number of bins in the biased feature to integrate over.
+        recalculate : bool, default True
+            If True, integrate over biased feature locally i.e. on a per batch basis. Otherwise only calculate the biased feature Legendre polynomials once and integrate over it globally.
+        background_only : bool, default True
+            If True, only try to flatten the response of background events (label 1.) Otherwise, flatten the response for both classes at the same time.
+        norm : string={'L1','L2"}, default 'L2'
+            Normalization used to calculate the flat part of the loss. E.g. L2: LegendreLoss=mean((F(s)-F_flat(s))**2)
+        """
         self.frac = frac
         self.mse = WeightedMSE(labels)
         self.backonly = background_only
@@ -163,6 +195,19 @@ class FlatLoss():
         self.norm = norm
         self.recalculate = recalculate
     def __call__(self,pred,target,x_biased):
+        """
+        Calculate the total loss (flat and MSE.)
+
+
+        Parameters
+        ----------
+        pred : Tensor
+            Tensor of predictions.
+        target : Tensor
+            Tensor of target labels.
+        x_biased : Tensor
+            Tensor of biased feature.
+        """
         mse = (1-self.frac)*self.mse(pred,target)
         if not self.recalculate:
             if self.backonly:
@@ -198,6 +243,21 @@ class FlatLoss():
 
 class LegendreLoss():
     def __init__(self,x_biased,bins=32,norm="L2"):
+        """
+        Calculate the zeroth and first order Legendre expansions of the predictions as a function of the biased feature and tries to minimize the difference between them.
+
+        Bins x_biased into number_bins = bins. Calculate cumsum of the scores in every bin and integrates the ith cumsum across bins of mass with legendre polynomials to find the coefficients of the expansion.
+        Then calculates the norm of the difference between the cumsum and its legendre expansion.
+
+        Parameters
+        ----------
+        x_biased : Tensor or Array or List
+            Vector of the biased feature.
+        bins : int, default 32
+            Number of bins in biased feature to integrate over.
+        norm : string={'L1','L2'}, default 'L2'
+            Norm used to calculate the difference between cumsum and its legendre exapnsion.
+        """
         self.mass, self.ordered_mass = torch.sort(x_biased)
         self.dm = (self.mass.view(-1,bins)[:,-1] - self.mass.view(-1,bins)[:,0]).view(-1,1)
         self.m = self.mass.view(-1,bins).mean(axis=1).view(-1,1)

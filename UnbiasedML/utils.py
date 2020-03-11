@@ -80,8 +80,8 @@ class Logger():
         f.write("\n")
         f.close()
     def finished(self):
-        f = open(file,"a")
-        f.write("*"*10+"Finished Training Successfully"+"*"*10)
+        f = open(self.file,"a")
+        f.write("*"*15+"Finished Training Successfully"+"*"*15)
         f.write("\n\n\n")
         f.close()
 

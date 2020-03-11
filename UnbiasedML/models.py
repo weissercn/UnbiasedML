@@ -2,12 +2,14 @@ import numpy as np
 import torch
 import torch.optim as optim
 import torch.nn as nn
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 from time import time
+from utils import Metrics, find_threshold
+
 
 class Classifier(nn.Module):
     """ DNN Model Class. Can be initialized with input_size: Number of features per sample"""
-    def __init__(self,input_size=10):
+    def __init__(self,input_size=10,name=None):
         super().__init__()
         self.linear = nn.Linear(input_size,32)
         self.linear2 = nn.Linear(32,64)
@@ -17,6 +19,7 @@ class Classifier(nn.Module):
         self.optimizer = torch.optim.SGD(self.parameters(),lr=1e-3)
         self.yhat_val = None
         self.yhat = None
+        self.name = name
     def forward(self, x):
         x = nn.functional.relu(self.linear(x))
         x = nn.functional.relu(self.linear2(x))
@@ -24,7 +27,7 @@ class Classifier(nn.Module):
         x = torch.sigmoid(self.out(x))
         return x
 
-    def fit(self,traindataset,epochs=200,batch_size=None, shuffle=False, num_workers=None, optimizer=None,scheduler=None,loss=None,interval=100,valdataset=None,drop_last=False,metrics=None,delay_loss=False,pass_x_biased=False,device='cpu'):
+    def fit(self,traindataset,epochs=200,batch_size=None, shuffle=False, num_workers=None, optimizer=None,scheduler=None,loss=None,interval=100,valdataset=None,drop_last=False,metrics=None,delay_loss=False,pass_x_biased=False,device='cpu',log=None):
         """ Method used to train the model on traindataset (torch.utils.data.Dataset) """
         if optimizer:
             self.optimizer = optimizer
@@ -32,17 +35,20 @@ class Classifier(nn.Module):
             self.loss = loss
         if metrics is None:
             metrics = [Metrics(),Metrics(validation=True)]
+        if log:
+            params = locals()
+            [params.pop(item) for item in ['self','scheduler','device','log',"traindataset","valdataset","optimizer",'loss',"metrics"]]
+            log.initialize(params=params,loss=self.loss,optimizer=self.optimizer)
+
         if valdataset:
             validation_generator = DataLoader(valdataset,batch_size=len(valdataset),shuffle=False)
         training_generator = DataLoader(traindataset, batch_size=batch_size, shuffle=shuffle,num_workers=num_workers,drop_last=drop_last)
-        
         t0 = time()        
         print("Entering Training...")
         for epoch in range(1,epochs+1):
             for x,y,m in training_generator:
                 if device!='cpu':
                     x,y,m = x.to(device),y.to(device),m.to(device)
-                #x,y,m = x.float(),y.int(),m.float() #moved to user
                 self.train()
                 self.yhat = self(x).view(-1)
                 if epoch<delay_loss:
@@ -63,11 +69,7 @@ class Classifier(nn.Module):
                 if epoch % interval ==0 or epoch == epochs:
                     self.train(False)
                     for x,yval,m in validation_generator:
-                       # yval = yval.float().to(device)
-                       # x = x.float().to(device)
-                       # m = m.float().to(device)
                         self.yhat_val = self(x).view(-1)
-                    #l_val = torch.nn.MSELoss()(self.yhat_val,val_data[1])
                     valloss = WeightedMSE(yval)
                     l_val = valloss(self.yhat_val,yval)
                     metrics[0].calculate(pred=self.yhat,target=y,l=l.item())
@@ -76,73 +78,22 @@ class Classifier(nn.Module):
                     JSD = metrics[1].JSD[-1]
                     acc_val = metrics[1].accs[-1]
                     acc = metrics[0].accs[-1]
-                    print('Epoch:{:04d}/{:04d} || Train: loss:{:.4f}, acc:{:.0f}% || Test: loss: {:.4f}, acc:{:.0f}%, R50: {:.4f}, 1/JSD: {:.4f}  || {:04.1f}s'.format(
+                    entry = 'Epoch:{:04d}/{:04d}  ({t:<5.1f}s)\n Train: loss:{:.4f}, acc:{:.0f}% || Val: loss: {:.4f}, acc:{:.0f}%, R50: {:.4f}, 1/JSD: {:.4f}'.format(
                 epoch,epochs,l.item(), 100.* acc,
-                l_val.item(), 100.* acc_val,R50,1/JSD,time()-t0))
+                l_val.item(), 100.* acc_val,R50,1/JSD,t=time()-t0)
+                    print(entry)
+                    if log is not None:
+                        log.entry(entry)
             else:
                 if epoch % interval ==0:
                     acc = metrics[0].accs[-1]
-                    print('Epoch:{:04d}/{:04d} loss: {:.4f}, accuracy:({:.0f}%)'.format(
-                        epoch,epochs,l.item(), 100.* acc))
+                    entry = 'Epoch:{:04d}/{:04d} loss: {:.4f}, accuracy:({:.0f}%)'.format(
+                        epoch,epochs,l.item(), 100.* acc)
+                    print(entry)
+                    if log is not None:
+                        log.entry(entry)
+        log.finished()
 
-class DataSet(Dataset):
-    'Characterizes a dataset for PyTorch'
-    def __init__(self, samples,labels,m=None):
-        'Initialization'
-        self.labels = labels
-        self.samples = samples
-        self.m = m
-    def __len__(self):
-        'Denotes the total number of samples'
-        return len(self.labels)
-
-    def __getitem__(self, index):
-        'Generates one sample of data'
-        # Select sample
-        X = self.samples[index]
-        y = self.labels[index]
-        if self.m is not None:
-            return X, y, self.m[index]
-        else:
-            return X, y, 0
-
-
-class Metrics():
-    def __init__(self,validation=False):
-        self.validation = validation
-        self.losses = []
-        self.accs = []
-        self.signalE = []
-        self.backgroundE= []
-        if self.validation:
-            self.R50 = []
-            self.JSD = []
-    def calculate(self,pred,target,l=None,m=None):
-        preds = np.array(pred.tolist()).flatten()
-        targets = np.array(target.tolist()).flatten()
-        acc = (preds.round()==targets).sum()/targets.shape[0]
-        signal_efficiency = ((preds.round()==targets)&(targets==1)).sum()/(targets==1).sum()
-        background_efficiency = ((preds.round()==targets)&(targets==0)).sum()/(targets==0).sum()
-        
-        
-        if self.validation:
-            c = find_threshold(preds,(targets==0),0.5)
-            R50 = 1/((preds[targets==1]<c).sum()/(targets==1).sum())
-            self.R50.append(R50)
-            if m is not None:
-                m = np.array(m.tolist()).flatten()
-                p, bins = np.histogram(m[targets==1],bins=50,density = True)
-                q, _ = np.histogram(m[(targets==1)&(preds<c)],bins=bins,density = True)
-                goodidx = (p!=0)&(q!=0)
-                p = p[goodidx]
-                q = q[goodidx]
-                JSD = np.sum(.5*(p*np.log2(p)+q*np.log2(q)-(p+q)*np.log2((p+q)*0.5)))*(bins[1]-bins[0])
-                self.JSD.append(JSD)
-        self.accs.append(acc)
-        self.signalE.append(signal_efficiency)
-        self.backgroundE.append(background_efficiency)
-        if l:
-            self.losses.append(l)
 
 class WeightedMSE():
     def __init__(self,labels):
@@ -151,6 +102,8 @@ class WeightedMSE():
     def __call__(self,pred,target):
         weights = target/self.ones_frac + (1-target)
         return torch.mean(weights*(pred-target)**2)
+    def __repr__(self):
+        return "Weighted MSE:  c0={:.1f}   c1={:.3f}".format(1.,1/self.ones_frac)
 
 class FlatLoss():
     def __init__(self,labels,frac,bins=32,recalculate=True,background_only=True,norm='L2'):
@@ -189,11 +142,14 @@ class FlatLoss():
                     target = target[:-mod] 
             LLoss = LegendreLoss(x_biased,self.bins,norm=self.norm)
             return self.frac*LLoss(pred,target) + mse
+    def __repr__(self):
+        str1 = "Flat Loss: frac/strength={:.2f}/{:.2f}, norm={}, background_only={}, bins={}".format(self.frac,self.frac*(1-self.frac),self.norm, self.backonly,self.bins)
+        str2 = repr(self.mse)
+        return "\n".join([str1,str2])
 
 class LegendreLoss():
     def __init__(self,x_biased,bins=32,norm="L2"):
         self.mass, self.ordered_mass = torch.sort(x_biased)
-        #self.mass = 2*(self.mass-self.mass.min())/(self.mass.max()-self.mass.min())-1 #move to preprocessing later
         self.dm = (self.mass.view(-1,bins)[:,-1] - self.mass.view(-1,bins)[:,0]).view(-1,1)
         self.m = self.mass.view(-1,bins).mean(axis=1).view(-1,1)
         self.p0 = 1
@@ -220,7 +176,7 @@ class LegendreLoss():
         return legendre_loss
 
     
-class JiangLoss():
+class JiangLoss():  #need to remove numpy later
     def __init__(self,truth,x_biased,eta=1e-3,range=(0.25,0.75)):
         self.gx = (x_biased<rang[1])&(x_biased>range[0])
         self.ytrue = (truth==1)
@@ -242,20 +198,4 @@ class JiangLoss():
         self.weights = torch.from_numpy(self.weights).view(-1,1)
         self.scores = pred
         return torch.mean(self.weights*(pred-target)**2)
-
-
-#def fun(cut,signalE,validation_predictions):
-#        passing_cut = (validation_predictions>cut).astype(int)
-#        return abs(((passing_cut==y_val)&(y_val==1)).sum()/(y_val==1).sum()-signalE)
-#def get_cuts(signalEs,validaiton_predictions):
-#    cuts =[]
-#    for signalE in signalEs:
-#        cuts.append(minimize(fun,[0.5],args=(signalE,validation_predicitons),method="Nelder-mead",bounds=(0,1)).x[0])
-#    return cuts
-
-def find_threshold(L, mask, x_frac):
-    max_x = mask.sum()
-    x = int(np.round(x_frac * max_x))
-    L_sorted = np.sort(L[mask.astype(bool)])
-    return L_sorted[-x]
 

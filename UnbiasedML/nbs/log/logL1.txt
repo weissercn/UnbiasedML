@@ -1,0 +1,171 @@
+********************************************************************************
+Model initialized on: 11/03/2020 14:14:40
+   epochs    batch_size   shuffle   num_workers   interval   drop_last   delay_loss pass_x_biased
+    200         4096         1           6          100          0           0           1      
+
+**Loss**
+Flat Loss: frac/strength=0.00/0.00, norm=L1, background_only=True, bins=128
+Weighted MSE:  c0=1.0   c1=1.002
+
+**Optimizer**
+SGD (Parameter Group 0    dampening: 0    lr: 0.1    momentum: 0.0    nesterov: False    weight_decay: 0)
+
+Epoch:0100/0200  (32.7 s)
+ Train: loss:0.1618, acc:77% || Val: loss: 0.1624, acc:78%, R50: 11.2087, 1/JSD: 3.7598
+Epoch:0200/0200  (68.0 s)
+ Train: loss:0.1607, acc:79% || Val: loss: 0.1599, acc:78%, R50: 11.4777, 1/JSD: 3.9537
+
+*************************Finished Training Successfully*************************
+
+********************************************************************************
+Model initialized on: 11/03/2020 14:15:50
+   epochs    batch_size   shuffle   num_workers   interval   drop_last   delay_loss pass_x_biased
+    200         4096         1           6          100          0           0           1      
+
+**Loss**
+Flat Loss: frac/strength=0.33/0.22, norm=L1, background_only=True, bins=128
+Weighted MSE:  c0=1.0   c1=1.002
+
+**Optimizer**
+SGD (Parameter Group 0    dampening: 0    lr: 0.1    momentum: 0.0    nesterov: False    weight_decay: 0)
+
+Epoch:0100/0200  (42.0 s)
+ Train: loss:0.1171, acc:78% || Val: loss: 0.1689, acc:77%, R50: 10.7068, 1/JSD: 4.3575
+Epoch:0200/0200  (81.6 s)
+ Train: loss:0.1181, acc:78% || Val: loss: 0.1619, acc:78%, R50: 11.4255, 1/JSD: 4.2124
+
+*************************Finished Training Successfully*************************
+
+********************************************************************************
+Model initialized on: 11/03/2020 14:17:13
+   epochs    batch_size   shuffle   num_workers   interval   drop_last   delay_loss pass_x_biased
+    200         4096         1           6          100          0           0           1      
+
+**Loss**
+Flat Loss: frac/strength=0.50/0.25, norm=L1, background_only=True, bins=128
+Weighted MSE:  c0=1.0   c1=1.002
+
+**Optimizer**
+SGD (Parameter Group 0    dampening: 0    lr: 0.1    momentum: 0.0    nesterov: False    weight_decay: 0)
+
+Epoch:0100/0200  (37.7 s)
+ Train: loss:0.0970, acc:77% || Val: loss: 0.1742, acc:76%, R50: 10.4724, 1/JSD: 4.7230
+Epoch:0200/0200  (76.0 s)
+ Train: loss:0.0955, acc:77% || Val: loss: 0.1649, acc:77%, R50: 11.4125, 1/JSD: 4.3338
+
+*************************Finished Training Successfully*************************
+
+********************************************************************************
+Model initialized on: 11/03/2020 14:18:30
+   epochs    batch_size   shuffle   num_workers   interval   drop_last   delay_loss pass_x_biased
+    200         4096         1           6          100          0           0           1      
+
+**Loss**
+Flat Loss: frac/strength=0.67/0.22, norm=L1, background_only=True, bins=128
+Weighted MSE:  c0=1.0   c1=1.002
+
+**Optimizer**
+SGD (Parameter Group 0    dampening: 0    lr: 0.1    momentum: 0.0    nesterov: False    weight_decay: 0)
+
+Epoch:0100/0200  (45.5 s)
+ Train: loss:0.0726, acc:70% || Val: loss: 0.2080, acc:69%, R50: 5.2036, 1/JSD: 10.9982
+Epoch:0200/0200  (84.1 s)
+ Train: loss:0.0737, acc:76% || Val: loss: 0.1824, acc:76%, R50: 9.3685, 1/JSD: 5.0252
+
+*************************Finished Training Successfully*************************
+
+********************************************************************************
+Model initialized on: 11/03/2020 14:19:56
+   epochs    batch_size   shuffle   num_workers   interval   drop_last   delay_loss pass_x_biased
+    200         4096         1           6          100          0           0           1      
+
+**Loss**
+Flat Loss: frac/strength=0.75/0.19, norm=L1, background_only=True, bins=128
+Weighted MSE:  c0=1.0   c1=1.002
+
+**Optimizer**
+SGD (Parameter Group 0    dampening: 0    lr: 0.1    momentum: 0.0    nesterov: False    weight_decay: 0)
+
+Epoch:0100/0200  (38.4 s)
+ Train: loss:0.0601, acc:69% || Val: loss: 0.2129, acc:68%, R50: 4.8895, 1/JSD: 11.7944
+Epoch:0200/0200  (77.1 s)
+ Train: loss:0.0594, acc:75% || Val: loss: 0.1913, acc:74%, R50: 8.2863, 1/JSD: 6.8804
+
+*************************Finished Training Successfully*************************
+
+********************************************************************************
+Model initialized on: 11/03/2020 14:21:14
+   epochs    batch_size   shuffle   num_workers   interval   drop_last   delay_loss pass_x_biased
+    200         4096         1           6          100          0           0           1      
+
+**Loss**
+Flat Loss: frac/strength=0.83/0.14, norm=L1, background_only=True, bins=128
+Weighted MSE:  c0=1.0   c1=1.002
+
+**Optimizer**
+SGD (Parameter Group 0    dampening: 0    lr: 0.1    momentum: 0.0    nesterov: False    weight_decay: 0)
+
+Epoch:0100/0200  (41.5 s)
+ Train: loss:0.0417, acc:68% || Val: loss: 0.2235, acc:66%, R50: 4.3011, 1/JSD: 7.9784
+Epoch:0200/0200  (81.0 s)
+ Train: loss:0.0417, acc:70% || Val: loss: 0.2084, acc:69%, R50: 6.1841, 1/JSD: 9.3829
+
+*************************Finished Training Successfully*************************
+
+********************************************************************************
+Model initialized on: 11/03/2020 14:22:37
+   epochs    batch_size   shuffle   num_workers   interval   drop_last   delay_loss pass_x_biased
+    200         4096         1           6          100          0           0           1      
+
+**Loss**
+Flat Loss: frac/strength=0.91/0.08, norm=L1, background_only=True, bins=128
+Weighted MSE:  c0=1.0   c1=1.002
+
+**Optimizer**
+SGD (Parameter Group 0    dampening: 0    lr: 0.1    momentum: 0.0    nesterov: False    weight_decay: 0)
+
+Epoch:0100/0200  (39.6 s)
+ Train: loss:0.0260, acc:66% || Val: loss: 0.2328, acc:65%, R50: 3.6855, 1/JSD: 5.8474
+Epoch:0200/0200  (86.3 s)
+ Train: loss:0.0278, acc:68% || Val: loss: 0.2215, acc:68%, R50: 3.5226, 1/JSD: 7.4420
+
+*************************Finished Training Successfully*************************
+
+********************************************************************************
+Model initialized on: 11/03/2020 14:24:04
+   epochs    batch_size   shuffle   num_workers   interval   drop_last   delay_loss pass_x_biased
+    200         4096         1           6          100          0           0           1      
+
+**Loss**
+Flat Loss: frac/strength=0.94/0.06, norm=L1, background_only=True, bins=128
+Weighted MSE:  c0=1.0   c1=1.002
+
+**Optimizer**
+SGD (Parameter Group 0    dampening: 0    lr: 0.1    momentum: 0.0    nesterov: False    weight_decay: 0)
+
+Epoch:0100/0200  (39.1 s)
+ Train: loss:0.0187, acc:64% || Val: loss: 0.2417, acc:64%, R50: 3.4619, 1/JSD: 5.0963
+Epoch:0200/0200  (78.1 s)
+ Train: loss:0.0204, acc:65% || Val: loss: 0.2353, acc:66%, R50: 3.3134, 1/JSD: 5.9260
+
+*************************Finished Training Successfully*************************
+
+********************************************************************************
+Model initialized on: 11/03/2020 14:25:24
+   epochs    batch_size   shuffle   num_workers   interval   drop_last   delay_loss pass_x_biased
+    200         4096         1           6          100          0           0           1      
+
+**Loss**
+Flat Loss: frac/strength=0.95/0.05, norm=L1, background_only=True, bins=128
+Weighted MSE:  c0=1.0   c1=1.002
+
+**Optimizer**
+SGD (Parameter Group 0    dampening: 0    lr: 0.1    momentum: 0.0    nesterov: False    weight_decay: 0)
+
+Epoch:0100/0200  (46.6 s)
+ Train: loss:0.0163, acc:60% || Val: loss: 0.2470, acc:61%, R50: 3.4969, 1/JSD: 117.7401
+Epoch:0200/0200  (89.3 s)
+ Train: loss:0.0163, acc:63% || Val: loss: 0.2444, acc:64%, R50: 4.1741, 1/JSD: 11.1831
+
+*************************Finished Training Successfully*************************
+

@@ -8,8 +8,19 @@ from utils import Metrics, find_threshold
 
 
 class Classifier(nn.Module):
-    """ DNN Model Class. Can be initialized with input_size: Number of features per sample"""
     def __init__(self,input_size=10,name=None):
+        """
+         DNN Model inherits from torch.nn.Module. Can be initialized with input_size: Number of features per sample.
+
+        This is a class wrapper for a simple DNN model. Creates an instance of torch.nn.Module that has 4 linear layers. Use torchsummary for details.abs 
+
+        Parameters
+        ----------
+        input_size : int=10
+            The number of features to train on.
+        name : string=None 
+            Specifiy a name for the DNN.break
+        """
         super().__init__()
         self.linear = nn.Linear(input_size,32)
         self.linear2 = nn.Linear(32,64)
@@ -28,7 +39,44 @@ class Classifier(nn.Module):
         return x
 
     def fit(self,traindataset,epochs=200,batch_size=None, shuffle=False, num_workers=None, optimizer=None,scheduler=None,loss=None,interval=100,valdataset=None,drop_last=False,metrics=None,delay_loss=False,pass_x_biased=False,device='cpu',log=None):
-        """ Method used to train the model on traindataset (torch.utils.data.Dataset) """
+        """
+        Fit model to traindataset. 
+
+        Parameters
+        ----------
+        traindataset : DataSet
+            The DataSet [torch.utils.data.Dataset] instance containing the training data. Used to create a DataLoader. Must return x,y,m where x is the vector of features, y is the label and m is the biased feature.
+        epochs : int
+            Number of epochs to train.
+        batch_size : int
+            Size of the batch.
+        shuffle : bool
+            If True shuffles the training data.
+        num_workers : int
+            Passed to DataLoader. 
+        optimizer : torch.optim
+            Optimizer to use in the training. Defaults to torch.optim.SGD(lr-1e-3).
+        scheduler : torch.optim.lr_scheduler
+            Scheduler used to change the learning rate.
+        loss : Callable
+            Criterion to minimize. Defaults to torch.nn.MSELoss
+        interval : int
+            Log and print progress every epochs mod interval == 0.
+        valdataset : DataSet
+            Same as traindataset but for the validation data.
+        drop_last : bool
+            If drop_last the DataLoader will only keep floor(len(traindataset)/batch_size). Used if the loss requires batches of the same size.
+        metrics : [Metrics,Metrics]
+            Metrics object where to store the training/validation metrics.
+        delay_loss : int
+            Delay using the provided loss for delay_loss epochs. Optmizer uses WeightedMSE before that. 
+        pass_x_biased : bool
+            If true, passes the biased feature as a third argument to the loss function.
+        device : str or torch.device
+            Which device to use. Defaults to cpu.
+        log : Logger
+            Logging object.     
+        """
         if optimizer:
             self.optimizer = optimizer
         if loss:
@@ -160,8 +208,6 @@ class LegendreLoss():
         self.legendre = 0
         self.bins = bins
         self.norm = norm
-        #if norm =="L2":
-           # self.norm = lambda x,y: (
     def __call__(self,pred,target):   
         pred_bins = pred[self.ordered_mass].view(-1,self.bins)
         ordered_s = pred_bins.argsort(axis=1)

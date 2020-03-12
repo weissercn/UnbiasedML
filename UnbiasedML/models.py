@@ -237,7 +237,7 @@ class FlatLoss():
             LLoss = LegendreLoss(x_biased,self.bins,norm=self.norm)
             return self.frac*LLoss(pred,target) + mse
     def __repr__(self):
-        str1 = "Flat Loss: frac/strength={:.2f}/{:.2f}, norm={}, background_only={}, bins={}".format(self.frac,self.frac*(1-self.frac),self.norm, self.backonly,self.bins)
+        str1 = "Flat Loss: frac/strength={:.2f}/{:.2f}, norm={}, background_only={}, bins={}".format(self.frac,self.frac/(1-self.frac),self.norm, self.backonly,self.bins)
         str2 = repr(self.mse)
         return "\n".join([str1,str2])
 

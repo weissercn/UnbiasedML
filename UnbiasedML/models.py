@@ -272,6 +272,7 @@ class LegendreLoss():
         pred_bins = pred[self.ordered_mass].view(-1,self.bins)
         ordered_s = pred_bins.argsort(axis=1)
         self.scores = pred_bins 
+        self.scores = self.scores.sort(axis=1)[0] 
         self.scores = torch.cumsum(self.scores,axis=1)/self.scores.sum(axis=1).view(-1,1)
         a0 = 1/2 * (self.scores*self.dm).sum(axis=0)
         a1 = 3/2 * (self.scores*self.p1*self.dm).sum(axis=0)

@@ -5,7 +5,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from time import time
 from utils import Metrics, find_threshold
-
+from torchviz import make_dot
 
 class Classifier(nn.Module):
     def __init__(self,input_size=10,name=None):
@@ -102,10 +102,11 @@ class Classifier(nn.Module):
                 if epoch<delay_loss:
                     l = torch.nn.MSELoss()(self.yhat,y)
                 elif pass_x_biased==False:
-                    l = self.loss(self.yhat,y)
+                    l = self.loss(pred=self.yhat,target=y)
                 else:
-                    l = self.loss(self.yhat,y,m)
+                    l = self.loss(pred=self.yhat,target=y,x_biased=m)
                 l.backward()
+                breakpoint()
                 self.optimizer.step()
                 self.optimizer.zero_grad()
                 if scheduler:
@@ -241,7 +242,7 @@ class FlatLoss():
                     pred = pred[:-mod]
                     target = target[:-mod] 
             LLoss = LegendreLoss(x_biased,bins=self.bins,sbins=self.sbins,order=self.order,norm=self.norm)
-            return self.frac*LLoss(pred,target) + mse
+            return self.frac*LLoss(pred=pred,target=target) + mse
     def __repr__(self):
         str1 = "Flat Loss: frac/strength={:.2f}/{:.2f}, norm={}, background_only={}, order={}, bins={}, sbins={}".format(self.frac,self.frac/(1-self.frac),self.norm, self.backonly,self.order,self.bins,self.sbins)
         str2 = repr(self.mse)
@@ -250,7 +251,7 @@ class FlatLoss():
 class LegendreLoss():
     def __init__(self,x_biased,bins=32,norm="L2",sbins=100,order=1):
         """
-        Calculate the zeroth and first order Legendre expansions of the predictions as a function of the biased feature and tries to minimize the difference between them.
+        Calculate the n-th order Legendre expansions of the CDF of the predictions as a function of the biased feature and tries to minimize the difference between the Legendre expansion and the CDF of the predicted scores across bins of the biased feature.
 
         Bins x_biased into number_bins = bins. Calculate cumsum of the scores in every bin and integrates the ith cumsum across bins of mass with legendre polynomials to find the coefficients of the expansion.
         Then calculates the norm of the difference between the cumsum and its legendre expansion.
@@ -263,23 +264,26 @@ class LegendreLoss():
             Number of bins in biased feature to integrate over.
         norm : string={'L1','L2'}, default 'L2'
             Norm used to calculate the difference between cumsum and its legendre exapnsion.
+        sbins : int, default 100
+            Number of score (ypred) bins to use.
+        order : int, default 1
+            The maximum order of legendre polynomial to compute. 
         """
         self.mass, self.ordered_mass = torch.sort(x_biased)
-        self.dm = (self.mass.view(-1,bins)[:,-1] - self.mass.view(-1,bins)[:,0]).view(-1)
-        self.m = self.mass.view(-1,bins).mean(axis=1).view(-1)
+        self.dm = (self.mass.view(bins,-1)[:,-1] - self.mass.view(bins,-1)[:,0]).view(-1)
+        self.m = self.mass.view(bins,-1).mean(axis=1).view(-1)
         self.p0 = 1
         self.p1 = self.m
         self.p2 = (self.m**2-1)/2
-        self.scores = 0
-        self.legendre = 0
         self.bins = bins
         self.sbins = sbins
         self.norm = norm
         self.order = order
-        self.s = torch.from_numpy(np.linspace(0,1,sbins)).view(-1,1,1)
     def __call__(self,pred,target):   
-        pred_bins = pred[self.ordered_mass].view(-1,self.bins)
-        self.F = (self.s>pred_bins.sort(axis=1)[0]).sum(axis=2).float()/self.bins 
+        pred_bins = pred[self.ordered_mass].view(self.bins,-1)
+        self.s = torch.linspace(pred.min().item(),pred.max().item(),self.sbins).view(-1,1,1)
+        self.s.requires_grad_(True)
+        self.F = (self.s>pred_bins.sort(axis=1)[0]).sum(axis=2).float()/self.m.shape[0] 
         a0 = 1/2 * (self.F*self.dm).sum(axis=1).view(-1,1)
         self.legendre = a0
         if self.order>0:

@@ -106,7 +106,7 @@ class LegendreIntegral(Function):
         ds = expand_dims_as(ds,input)
         
         F = Heaviside(s-input).sum(axis=-1).float()/input.shape[-1]
-        integral = (abs(F-fitter(F))**fitter.power*ds.view(-1,1)).sum(axis=0)
+        integral = ((F-fitter(F))**fitter.power*ds.view(-1,1)).sum(axis=0).sum()
 
         F_s_i =  expand_dims_as(input.view(-1),input)
         F_s_i =  Heaviside(F_s_i-input).sum(axis=-1).float()/input.shape[-1] 
@@ -135,8 +135,8 @@ class LegendreIntegral(Function):
         grad_input = None
         shape = ctx.shape
         if ctx.needs_input_grad[0]:
-            grad_input = grad_output.unsqueeze(-1).expand(shape) \
-             * (-ctx.power)*abs(ctx.residual)**(ctx.power-1)/shape[-1]
+            grad_input = grad_output  \
+             * (-ctx.power)*(ctx.residual.sum(axis=1))**(ctx.power-1)/shape[-1]
             grad_input = grad_input.view(shape)
 
         return grad_input, None, None

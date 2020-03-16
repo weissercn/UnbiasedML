@@ -4,44 +4,73 @@ import os
 from torch.utils.data import Dataset
 import string
 from torch.autograd import Function
+import torch
 
 def expand_dims(tensor, loc, ntimes=1):
     if ntimes != 1:
         if loc == 0:
             return tensor[(None,)*ntimes]
-        elif loc == -1
+        elif loc == -1:
             return tensor[(...,)+(None,)*ntimes]
         else:
             raise ValueError('Cannot insert arbitray number of dimensions in the middle of the tensor.')
     else:
         return tensor.unsqueeze(loc)
 
-def expand_dims_as(tensor1,tensor2):
-    return tensor1[(...,)+(None,)*tensor2.dim()] 
-
+def expand_dims_as(t1,t2):
+    result = t1[(...,)+(None,)*t2.dim()] 
+    return result 
 class LegendreFitter():
-    def __init__(self,shape,m=None,dm=None,order=0,power=1):
-        sbins, mbins = shape
+    def __init__(self,mbins=None,m=None,dm=None,order=0,power=1):
+        """
+        [TODO:summary]
+
+        [TODO:description]
+
+        Parameters
+        ----------
+        shape : [TODO:type]
+            [TODO:description]
+        m : [TODO:type]
+            [TODO:description]
+        dm : [TODO:type]
+            [TODO:description]
+        order : [TODO:type]
+            [TODO:description]
+        power : [TODO:type]
+            [TODO:description]
+        """
         if m is None:
+            if mbins is None:
+                raise ValueError("Provide either m or mbins.")
             m = torch.linspace(-1,1,mbins)
         if dm is None:
             dm = (m[1] - m[0])
-        self.m  = m.expand(shape)
-        self.dm = dm.expand(shape)
-        self.shape = shape
+        self.m = m.view(-1)
+        self.dm = dm.expand_as(self.m)
+        self.mbins = self.m.shape[0]
         self.power = power
+        self.order = order
 
     def __call__(self,F):
-        if F.shape != self.m.shape:
-            raise ValueError("Input tensor has wrong shape {}. Need {}.".fromat(F.shape, self.shape))
+        """
+        [TODO:summary]
+
+        [TODO:description]
+
+        Parameters
+        ----------
+        F : [TODO:type]
+            [TODO:description]
+        """
         a0 = 1/2 * (F*self.dm).sum(axis=-1).view(-1,1)
         fit = a0.expand_as(F)
-        if order>0:
-            a1 = 3/2 * (F*self.m*self.dm).sum(axis=-1).view(-1,1)
+        if self.order>0:
+            a1 = 3/2 * (F*self.m*self.dm).sum(axis=1).view(-1,1)
             fit += a1*self.m
-        if order>1:
+        if self.order>1:
             p2 = (self.m**2-1)*0.5
-            a2 = 5/2 * (F*p2*self.dm).sum(axis=-1).view(-1,1)
+            a2 = 5/2 * (F*p2*self.dm).sum(axis=1).view(-1,1)
             fit += a2*p2
         return fit
 
@@ -53,32 +82,62 @@ def Heaviside(tensor):
 class LegendreIntegral(Function):
     @staticmethod
     def forward(ctx, input, fitter, s_edges=None):
+        """
+        [TODO:summary]
+
+        [TODO:description]
+
+        Parameters
+        ----------
+        ctx : [TODO:type]
+            [TODO:description]
+        input : [TODO:type]
+            [TODO:description]
+        fitter : [TODO:type]
+            [TODO:description]
+        s_edges : [TODO:type]
+            [TODO:description]
+        """
         if s_edges is None:
-            s_edges = torch.linspace(input.min().item(),input.max().item(),fitter.shape[0]+1)    #.view(-1,1,1)
+            s_edges = torch.linspace(input.min().item(),input.max().item(),7)    #.view(-1,1,1)
         s = (s_edges[1:] + s_edges[:-1])*0.5
         s = expand_dims_as(s,input)
-        ds = s_edges[1:] - s_edges[:,-1]
+        ds = s_edges[1:] - s_edges[:-1]
         ds = expand_dims_as(ds,input)
         
         F = Heaviside(s-input).sum(axis=-1).float()/input.shape[-1]
-        integral = (F-fitter(F)**fitter.power*ds).sum(axis=0)
-
+        integral = (abs(F-fitter(F))**fitter.power*ds.view(-1,1)).sum(axis=0)
 
         F_s_i =  expand_dims_as(input.view(-1),input)
-        F_s_i =  Heaviside(F_s_i-input).sum(axis=-1).float()/input.shape[-1] #torch.ones_like(input).cumsum(axis=-1)/input.shape[-1] #shape(mbins,content)
+        F_s_i =  Heaviside(F_s_i-input).sum(axis=-1).float()/input.shape[-1] 
         residual = F_s_i - fitter(F_s_i)
-        ctx.save_for_backward(input,residual,fitter.power)
+        ctx.power = fitter.power
+        ctx.residual = residual
+        ctx.shape = input.shape
+        #breakpoint()
+       
         return integral # shape(mbins,)
 
     @staticmethod
     def backward(ctx, grad_output):
-        input, residual, power = ctx.saved_tensors
-        grad_input = None
+        """
+        [TODO:summary]
 
+        [TODO:description]
+
+        Parameters
+        ----------
+        ctx : [TODO:type]
+            [TODO:description]
+        grad_output : [TODO:type]
+            [TODO:description]
+        """
+        grad_input = None
+        shape = ctx.shape
         if ctx.needs_input_grad[0]:
-            grad_input = grad_output.unsqueeze(-1).expand_as(input) \
-             * (-power)*(residual)**(power-1)/input.shape[-1]
-            grad_input = grad_input.view(input.shape)
+            grad_input = grad_output.unsqueeze(-1).expand(shape) \
+             * (-ctx.power)*abs(ctx.residual)**(ctx.power-1)/shape[-1]
+            grad_input = grad_input.view(shape)
 
         return grad_input, None, None
 

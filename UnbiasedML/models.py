@@ -4,7 +4,7 @@ import torch.optim as optim
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from time import time
-from utils import Metrics, find_threshold
+from utils import Metrics, find_threshold, LegendreIntegral, LegendreFitter
 from torchviz import make_dot
 
 class Classifier(nn.Module):

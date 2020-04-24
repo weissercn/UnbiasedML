@@ -106,7 +106,6 @@ class Classifier(nn.Module):
                 else:
                     l = self.loss(pred=self.yhat,target=y,x_biased=m)
                 l.backward()
-                breakpoint()
                 self.optimizer.step()
                 self.optimizer.zero_grad()
                 if scheduler:
@@ -241,8 +240,19 @@ class FlatLoss():
                     x_biased = x_biased[:-mod]
                     pred = pred[:-mod]
                     target = target[:-mod] 
-            LLoss = LegendreLoss(x_biased,bins=self.bins,sbins=self.sbins,order=self.order,norm=self.norm)
-            return self.frac*LLoss(pred=pred,target=target) + mse
+            #testing
+            mbins = self.bins
+            m, morder  = x_biased.sort()
+            m = m.view(mbins,-1)
+            dm = m[:,-1] - m[:,0]
+            m = m.mean(axis=1)
+            pred = pred[morder].view(mbins,-1).sort(axis=1)[0]
+            fitter = LegendreFitter(m=m, dm=dm,power=2) 
+            LLoss = LegendreIntegral.apply(pred, fitter,None, self.sbins)
+            ##
+            #LLoss = LegendreLoss(x_biased,bins=self.bins,sbins=self.sbins,order=self.order,norm=self.norm)
+            #return self.frac*LLoss(pred=pred,target=target) + mse
+            return self.frac*LLoss + mse
     def __repr__(self):
         str1 = "Flat Loss: frac/strength={:.2f}/{:.2f}, norm={}, background_only={}, order={}, bins={}, sbins={}".format(self.frac,self.frac/(1-self.frac),self.norm, self.backonly,self.order,self.bins,self.sbins)
         str2 = repr(self.mse)

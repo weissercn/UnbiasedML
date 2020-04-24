@@ -20,34 +20,35 @@ def expand_dims(tensor, loc, ntimes=1):
 def expand_dims_as(t1,t2):
     result = t1[(...,)+(None,)*t2.dim()] 
     return result 
+
 class LegendreFitter():
     def __init__(self,mbins=None,m=None,dm=None,order=0,power=1):
         """
-        [TODO:summary]
-
-        [TODO:description]
+        Object used to fit an array of using Legendre polynomials.
 
         Parameters
         ----------
-        shape : [TODO:type]
-            [TODO:description]
-        m : [TODO:type]
-            [TODO:description]
-        dm : [TODO:type]
-            [TODO:description]
-        order : [TODO:type]
-            [TODO:description]
-        power : [TODO:type]
-            [TODO:description]
+        mbins : Array[float] (optional)
+            The edge of m bins used in the fit. The fit is integrated along m.
+        m : Array[float] (optional)
+            m bin centers. Can be prodived ineasted of mbins
+        dm : Array[float]
+            Bin widths if the bin centers are provided.
+        order : int, default 0
+            The highest order of legendre polynomial used in the fit.
+        power : int, default 1
+            Power used in the norm of the difference between the input and the fit. |fit(input) - input|**power 
         """
         if m is None:
             if mbins is None:
                 raise ValueError("Provide either m or mbins.")
-            m = torch.linspace(-1,1,mbins)
+            m = torch.linspace(-1,1,mbins+1)
+            m =( m[1:] + m[:-1])*0.5
+        self.m = m.view(-1)
         if dm is None:
             dm = (m[1] - m[0])
-        self.m = m.view(-1)
-        self.dm = dm.expand_as(self.m)
+            dm = dm.expand_as(self.m)
+        self.dm = dm.view(-1)
         self.mbins = self.m.shape[0]
         self.power = power
         self.order = order
@@ -81,7 +82,7 @@ def Heaviside(tensor):
 
 class LegendreIntegral(Function):
     @staticmethod
-    def forward(ctx, input, fitter, s_edges=None):
+    def forward(ctx, input, fitter, s_edges=None,sbins=None):
         """
         [TODO:summary]
 
@@ -99,7 +100,7 @@ class LegendreIntegral(Function):
             [TODO:description]
         """
         if s_edges is None:
-            s_edges = torch.linspace(input.min().item(),input.max().item(),7)    #.view(-1,1,1)
+            s_edges = torch.linspace(input.min().item(),input.max().item(),sbins+1)    #.view(-1,1,1)
         s = (s_edges[1:] + s_edges[:-1])*0.5
         s = expand_dims_as(s,input)
         ds = s_edges[1:] - s_edges[:-1]
@@ -111,6 +112,16 @@ class LegendreIntegral(Function):
         F_s_i =  expand_dims_as(input.view(-1),input)
         F_s_i =  Heaviside(F_s_i-input).sum(axis=-1).float()/input.shape[-1] 
         residual = F_s_i - fitter(F_s_i)
+        #residual = F - fitter(F)
+        
+        #test
+        #s,s_args = input.view(-1).sort()
+        #s_ = torch.zeros(s.size()[0]+1)
+        #s_[1:] = s
+        #ds = s_[:-1] - s_[1:]
+        #ds = expand_dims_as(ds,input)
+        #integral = ((residual)**fitter.power*ds.view(-1,1)).sum(axis=0).sum()
+        
         ctx.power = fitter.power
         ctx.residual = residual
         ctx.shape = input.shape
@@ -135,11 +146,12 @@ class LegendreIntegral(Function):
         grad_input = None
         shape = ctx.shape
         if ctx.needs_input_grad[0]:
+            rez = ctx.residual.T.reshape(-1,shape[1])[(shape[0]+1)*np.arange(shape[0])]
             grad_input = grad_output  \
-             * (-ctx.power)*(ctx.residual.sum(axis=1))**(ctx.power-1)/shape[-1]
+             * (-ctx.power)*(rez)**(ctx.power-1)/np.prod(shape)
             grad_input = grad_input.view(shape)
 
-        return grad_input, None, None
+        return grad_input, None, None, None
 
 class Logger():
     def __init__(self,file="./logs/log.txt",overwrite=True):

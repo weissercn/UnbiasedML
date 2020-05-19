@@ -22,32 +22,33 @@ def expand_dims_as(t1,t2):
     return result 
 
 class LegendreFitter():
-    def __init__(self,mbins=None,m=None,dm=None,order=0,power=1):
+    def __init__(self,mbins=None,m=None,order=0,power=1):
         """
         Object used to fit an array of using Legendre polynomials.
 
         Parameters
         ----------
-        mbins : Array[float] (optional)
-            The edge of m bins used in the fit. The fit is integrated along m.
+        mbins :int or Array[float] (optional)
+            Array of bin edges or number of bins in m used in the fit. The fit is integrated along m.
         m : Array[float] (optional)
-            m bin centers. Can be prodived ineasted of mbins
-        dm : Array[float]
-            Bin widths if the bin centers are provided.
+            Array of all masses. Has shape (mbins,bincontent)
         order : int, default 0
             The highest order of legendre polynomial used in the fit.
         power : int, default 1
-            Power used in the norm of the difference between the input and the fit. |fit(input) - input|**power 
+            Power used in the norm of the difference between the input and the fit. |fit(input) - input|**power
         """
         if m is None:
             if mbins is None:
                 raise ValueError("Provide either m or mbins.")
-            m = torch.linspace(-1,1,mbins+1)
-            m =( m[1:] + m[:-1])*0.5
+            mbins = torch.linspace(-1,1,mbins+1) # mass bin edges
+            m  = (mbins[1:] + mbins[:-1])*0.5    # mass bin centers
+            dm = mbins[1:] - mbins[:-1]          # mass bin widths
+        else:
+            if type(m) != torch.Tensor:
+                m = torch.DoubleTensor(m)
+            dm = m.max(axis=1)[0] - m.min(axis=1)[0]  # bin widths for each of the mbins.
+            m  = m.mean(axis=1) # bin centers
         self.m = m.view(-1)
-        if dm is None:
-            dm = (m[1] - m[0])
-            dm = dm.expand_as(self.m)
         self.dm = dm.view(-1)
         self.mbins = self.m.shape[0]
         self.power = power
@@ -55,103 +56,80 @@ class LegendreFitter():
 
     def __call__(self,F):
         """
-        [TODO:summary]
-
-        [TODO:description]
+        Fit F with Legendre polynomials and return the fit.
 
         Parameters
         ----------
-        F : [TODO:type]
-            [TODO:description]
+        F : torch.Tensor
+            Tensor of CDFs F_m(s) has shape (N,mbins) where N is the number of scores 
         """
-        a0 = 1/2 * (F*self.dm).sum(axis=-1).view(-1,1)
-        fit = a0.expand_as(F)
+        a0 = 1/2 * (F*self.dm).sum(axis=-1).view(-1,1) #integrate over mbins
+        fit = a0.expand_as(F) # make boradcastable
         if self.order>0:
-            a1 = 3/2 * (F*self.m*self.dm).sum(axis=1).view(-1,1)
-            fit += a1*self.m
+            a1 = 3/2 * (F*self.m*self.dm).sum(axis=-1).view(-1,1)
+            fit = fit + a1*self.m
         if self.order>1:
             p2 = (self.m**2-1)*0.5
-            a2 = 5/2 * (F*p2*self.dm).sum(axis=1).view(-1,1)
-            fit += a2*p2
+            a2 = 5/2 * (F*p2*self.dm).sum(axis=-1).view(-1,1)
+            fit = fit+ a2*p2
         return fit
 
 
 def Heaviside(tensor):
-    return (tensor>0)
+    tensor[tensor>0] = 1
+    tensor[tensor==0] = 0.5
+    tensor[tensor<0] = 0
+    return tensor
 
-
-class LegendreIntegral(Function):
+class LegendreIntegral(Function): 
     @staticmethod
-    def forward(ctx, input, fitter, s_edges=None,sbins=None):
+    def forward(ctx, input, fitter,sbins=None):
         """
-        [TODO:summary]
-
-        [TODO:description]
+        Calculate the Flat loss of input integral{Norm(F(s)-F_flat(s))} integrating over sbins.
 
         Parameters
         ----------
-        ctx : [TODO:type]
-            [TODO:description]
-        input : [TODO:type]
-            [TODO:description]
-        fitter : [TODO:type]
-            [TODO:description]
-        s_edges : [TODO:type]
-            [TODO:description]
+        input : torch.Tensor
+            Scores with shape (mbins,bincontent) where mbins * bincontent = N (or the batch size.)
+        fitter : LegendreFitter
+            Fitter object used to calculate F_flat(s)
+        sbins : int
+            Number of s bins to use in the integral.
         """
-        if s_edges is None:
-            s_edges = torch.linspace(input.min().item(),input.max().item(),sbins+1)    #.view(-1,1,1)
+        s_edges = torch.linspace(0,1,sbins+1,dtype=torch.double) #create s edges to integrate over
         s = (s_edges[1:] + s_edges[:-1])*0.5
         s = expand_dims_as(s,input)
         ds = s_edges[1:] - s_edges[:-1]
-        ds = expand_dims_as(ds,input)
-        
-        F = Heaviside(s-input).sum(axis=-1).float()/input.shape[-1]
-        integral = ((F-fitter(F))**fitter.power*ds.view(-1,1)).sum(axis=0).sum()
 
-        F_s_i =  expand_dims_as(input.view(-1),input)
-        F_s_i =  Heaviside(F_s_i-input).sum(axis=-1).float()/input.shape[-1] 
+        F = Heaviside(s-input).sum(axis=-1).double()/input.shape[-1] # get CDF at s from input values
+        integral = (ds.matmul((F-fitter(F))**fitter.power)).sum(axis=0)/input.shape[0]
+        F_state.set(F) # save for plotting
+        s_state.set(s)
+        F_s_i =  expand_dims_as(input.view(-1),input) #make a flat copy of input and add dimensions for boradcasting
+        F_s_i =  Heaviside(F_s_i-input).sum(axis=-1).double()/input.shape[-1] #sum over bin content to get CDF
         residual = F_s_i - fitter(F_s_i)
-        #residual = F - fitter(F)
-        
-        #test
-        #s,s_args = input.view(-1).sort()
-        #s_ = torch.zeros(s.size()[0]+1)
-        #s_[1:] = s
-        #ds = s_[:-1] - s_[1:]
-        #ds = expand_dims_as(ds,input)
-        #integral = ((residual)**fitter.power*ds.view(-1,1)).sum(axis=0).sum()
-        
-        ctx.power = fitter.power
+        ctx.fitter = fitter
         ctx.residual = residual
         ctx.shape = input.shape
-        #breakpoint()
-       
-        return integral # shape(mbins,)
-
+        return integral
+    
     @staticmethod
     def backward(ctx, grad_output):
-        """
-        [TODO:summary]
-
-        [TODO:description]
-
-        Parameters
-        ----------
-        ctx : [TODO:type]
-            [TODO:description]
-        grad_output : [TODO:type]
-            [TODO:description]
-        """
         grad_input = None
         shape = ctx.shape
+        power = ctx.fitter.power
+        dm = ctx.fitter.dm
+        m = ctx.fitter.m
         if ctx.needs_input_grad[0]:
-            rez = ctx.residual.T.reshape(-1,shape[1])[(shape[0]+1)*np.arange(shape[0])]
+            first_term = ctx.residual[torch.repeat_interleave(torch.eye(shape[0],dtype=bool),shape[1],axis=0)]
+            # repeat_interleave is like numpy.repeat it repeats entries along some axis.
+            first_term = first_term.view(shape)
+            second_term = ctx.residual.sum(axis=-1)
+            second_term = second_term.view(shape) * dm.view(-1,1) * 0.5
             grad_input = grad_output  \
-             * (-ctx.power)*(rez)**(ctx.power-1)/np.prod(shape)
-            grad_input = grad_input.view(shape)
+             * (-power)*(first_term-second_term)/np.prod(shape)
 
-        return grad_input, None, None, None
+        return grad_input, None, None
 
 class Logger():
     def __init__(self,file="./logs/log.txt",overwrite=True):

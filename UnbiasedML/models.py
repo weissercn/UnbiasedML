@@ -91,43 +91,30 @@ class Classifier(nn.Module):
         if valdataset:
             validation_generator = DataLoader(valdataset,batch_size=len(valdataset),shuffle=False)
         training_generator = DataLoader(traindataset, batch_size=batch_size, shuffle=shuffle,num_workers=num_workers,drop_last=drop_last)
-        t0 = time()        
+        t0 = time()       
+        loss = 0
+        acc = 0
         print("Entering Training...")
         for epoch in range(1,epochs+1):
-            for x,y,m in training_generator:
-                if device!='cpu':
-                    x,y,m = x.to(device),y.to(device),m.to(device)
-                self.train()
-                self.yhat = self(x).view(-1)
-                if epoch<delay_loss:
-                    l = torch.nn.MSELoss()(self.yhat,y)
-                elif pass_x_biased==False:
-                    l = self.loss(pred=self.yhat,target=y)
-                else:
-                    l = self.loss(pred=self.yhat,target=y,x_biased=m)
-                l.backward()
-                self.optimizer.step()
-                self.optimizer.zero_grad()
-                if scheduler:
-                    scheduler.step()
-
-
         #Validation and Printing
             if valdataset:
-                if epoch % interval ==0 or epoch == epochs:
+                if epoch % interval ==0 or epoch == epochs or epoch==1:
                     self.train(False)
                     for x,yval,m in validation_generator:
+                        if device!='cpu':
+                            x,yval,m = x.to(device),yval.to(device),m.to(device)
                         self.yhat_val = self(x).view(-1)
                     valloss = WeightedMSE(yval)
                     l_val = valloss(self.yhat_val,yval)
-                    metrics[0].calculate(pred=self.yhat,target=y,l=l.item())
+                    if epoch != 1:
+                        metrics[0].calculate(pred=self.yhat,target=y,l=l.item())
+                        acc = metrics[0].accs[-1]
                     metrics[1].calculate(pred=self.yhat_val,target=yval,l=l_val.item(),m=m)
                     R50 = metrics[1].R50[-1]
                     JSD = metrics[1].JSD[-1]
                     acc_val = metrics[1].accs[-1]
-                    acc = metrics[0].accs[-1]
                     entry = 'Epoch:{:04d}/{:04d}  ({t:<5.1f}s)\n Train: loss:{:.4f}, acc:{:.0f}% || Val: loss: {:.4f}, acc:{:.0f}%, R50: {:.4f}, 1/JSD: {:.4f}'.format(
-                epoch,epochs,l.item(), 100.* acc,
+                epoch,epochs,loss, 100.* acc,
                 l_val.item(), 100.* acc_val,R50,1/JSD,t=time()-t0)
                     print(entry)
                     if log is not None:
@@ -140,6 +127,24 @@ class Classifier(nn.Module):
                     print(entry)
                     if log is not None:
                         log.entry(entry)
+           # Feed forward 
+            for x,y,m in training_generator:
+                if device!='cpu':
+                    x,y,m = x.to(device),y.to(device),m.to(device)
+                self.train()
+                self.yhat = self(x).view(-1)
+                if epoch<delay_loss:
+                    l = torch.nn.MSELoss()(self.yhat,y)
+                elif pass_x_biased==False:
+                    l = self.loss(pred=self.yhat,target=y)
+                else:
+                    l = self.loss(pred=self.yhat,target=y,x_biased=m)
+                l.backward()
+                loss = l.item()
+                self.optimizer.step()
+                self.optimizer.zero_grad()
+                if scheduler:
+                    scheduler.step()
         if log is not None:
             log.finished()
 
@@ -242,13 +247,14 @@ class FlatLoss():
                     target = target[:-mod] 
             #testing
             mbins = self.bins
-            m, morder  = x_biased.sort()
-            m = m.view(mbins,-1)
-            dm = m[:,-1] - m[:,0]
-            m = m.mean(axis=1)
-            pred = pred[morder].view(mbins,-1).sort(axis=1)[0]
-            fitter = LegendreFitter(m=m, dm=dm,power=2) 
-            LLoss = LegendreIntegral.apply(pred, fitter,None, self.sbins)
+#            m, morder  = x_biased.sort()
+#            m = m.view(mbins,-1)
+#            dm = m[:,-1] - m[:,0]
+#            m = m.mean(axis=1)
+#            pred = pred[morder].view(mbins,-1).sort(axis=1)[0]
+            pred = pred.view(mbins,-1).sort(axis=1)[0]
+            fitter = LegendreFitter(m=x_biased.view(mbins,-1), power=2) 
+            LLoss = LegendreIntegral.apply(pred, fitter, self.sbins)
             ##
             #LLoss = LegendreLoss(x_biased,bins=self.bins,sbins=self.sbins,order=self.order,norm=self.norm)
             #return self.frac*LLoss(pred=pred,target=target) + mse

@@ -21,6 +21,12 @@ def expand_dims_as(t1,t2):
     result = t1[(...,)+(None,)*t2.dim()] 
     return result 
 
+def Heaviside(tensor):
+    tensor[tensor>0] = 1
+    tensor[tensor==0] = 0.5
+    tensor[tensor<0] = 0
+    return tensor
+
 class LegendreFitter():
     def __init__(self,mbins=None,m=None,order=0,power=1):
         """
@@ -74,13 +80,6 @@ class LegendreFitter():
             fit = fit+ a2*p2
         return fit
 
-
-def Heaviside(tensor):
-    tensor[tensor>0] = 1
-    tensor[tensor==0] = 0.5
-    tensor[tensor<0] = 0
-    return tensor
-
 class LegendreIntegral(Function): 
     @staticmethod
     def forward(ctx, input, fitter,sbins=None):
@@ -96,15 +95,14 @@ class LegendreIntegral(Function):
         sbins : int
             Number of s bins to use in the integral.
         """
-        s_edges = torch.linspace(0,1,sbins+1,dtype=torch.double) #create s edges to integrate over
+        s_edges = torch.linspace(0,1,sbins+1,dtype=torch.double).to(input.device) #create s edges to integrate over
         s = (s_edges[1:] + s_edges[:-1])*0.5
         s = expand_dims_as(s,input)
         ds = s_edges[1:] - s_edges[:-1]
 
         F = Heaviside(s-input).sum(axis=-1).double()/input.shape[-1] # get CDF at s from input values
         integral = (ds.matmul((F-fitter(F))**fitter.power)).sum(axis=0)/input.shape[0]
-        F_state.set(F) # save for plotting
-        s_state.set(s)
+        
         F_s_i =  expand_dims_as(input.view(-1),input) #make a flat copy of input and add dimensions for boradcasting
         F_s_i =  Heaviside(F_s_i-input).sum(axis=-1).double()/input.shape[-1] #sum over bin content to get CDF
         residual = F_s_i - fitter(F_s_i)
@@ -254,13 +252,13 @@ class Metrics():
             R50 = 1/((preds[targets==1]<c).sum()/(targets==1).sum())
             self.R50.append(R50)
             if m is not None:
-                m = np.array(m.tolist()).flatten()
-                p, bins = np.histogram(m[targets==1],bins=50,density = True)
+                m = np.array(m.tolist()).flatten()*250
+                p, bins = np.histogram(m[targets==1],bins=20,density = True)
                 q, _ = np.histogram(m[(targets==1)&(preds<c)],bins=bins,density = True)
                 goodidx = (p!=0)&(q!=0)
                 p = p[goodidx]
                 q = q[goodidx]
-                JSD = np.sum(.5*(p*np.log2(p)+q*np.log2(q)-(p+q)*np.log2((p+q)*0.5)))*(bins[1]-bins[0])
+                JSD = np.sum(.5*(p*np.log2(p)+q*np.log2(q)-(p+q)*np.log2((p+q)*0.5)))#*(bins[1]-bins[0])
                 self.JSD.append(JSD)
         self.accs.append(acc)
         self.signalE.append(signal_efficiency)

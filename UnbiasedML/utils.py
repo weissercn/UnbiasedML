@@ -27,6 +27,8 @@ def Heaviside(tensor):
     tensor[tensor<0] = 0
     return tensor
 
+
+
 class LegendreFitter():
     def __init__(self,mbins=None,m=None,order=0,power=1):
         """
@@ -116,16 +118,23 @@ class LegendreIntegral(Function):
         grad_input = None
         shape = ctx.shape
         power = ctx.fitter.power
+        order = ctx.fitter.order
         dm = ctx.fitter.dm
         m = ctx.fitter.m
         if ctx.needs_input_grad[0]:
             first_term = ctx.residual[torch.repeat_interleave(torch.eye(shape[0],dtype=bool),shape[1],axis=0)]
             # repeat_interleave is like numpy.repeat it repeats entries along some axis.
-            first_term = first_term.view(shape)
+            first_term  = first_term.view(shape)
             second_term = ctx.residual.sum(axis=-1)
-            second_term = second_term.view(shape) * dm.view(-1,1) * 0.5
-            grad_input = grad_output  \
-             * (-power)*(first_term-second_term)/np.prod(shape)
+            second_term = second_term.view(shape) * dm.view(-1,1) * -0.5
+            summation = first_term + second_term
+
+            if order >0:
+                third_term  = (ctx.residual*m).sum(axis=-1).view(shape) * (dm*m).view(-1,1) * -1.5
+                summation += third_term
+
+            grad_input  = grad_output  \
+             * (-power)*(summation)/np.prod(shape)
 
         return grad_input, None, None
 
@@ -285,4 +294,4 @@ def find_threshold(L,mask,x_frac):
     max_x = mask.sum()
     x = int(np.round(x_frac * max_x))
     L_sorted = np.sort(L[mask.astype(bool)])
-    return L_sorted[-x]
+    return L_sorted[x]

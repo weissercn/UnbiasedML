@@ -24,8 +24,8 @@ class Classifier(nn.Module):
         super().__init__()
         self.linear = nn.Linear(input_size,32)
         self.linear2 = nn.Linear(32,64)
-        self.linear3 = nn.Linear(64,128)
-        self.out = nn.Linear(128,1)
+        #self.linear3 = nn.Linear(64,128)
+        self.out = nn.Linear(64,1)
         # Defaults
         self.optimizer = torch.optim.SGD(self.parameters(),lr=1e-3)
         self.yhat_val = None
@@ -34,7 +34,7 @@ class Classifier(nn.Module):
     def forward(self, x):
         x = nn.functional.relu(self.linear(x))
         x = nn.functional.relu(self.linear2(x))
-        x = nn.functional.relu(self.linear3(x))
+        #x = nn.functional.relu(self.linear3(x))
         x = torch.sigmoid(self.out(x))
         return x
 
@@ -220,7 +220,7 @@ class FlatLoss():
             Tensor of biased feature.
         """
         mse = (1-self.frac)*self.mse(pred,target)
-        if not self.recalculate:
+        if not self.recalculate: #broken for now
             if self.backonly:
                 truthmask = target==1
                 mod = truthmask.sum()%self.bins
@@ -232,7 +232,7 @@ class FlatLoss():
                     pred = pred[truthmask]
                     target = target[truthmask]
                     x_biased = x_biased[truthmask]
-            LLoss = LegendreLoss(x_biased,bins=self.bins,sbins=self.sbins,order=self.order,norm=self.norm)
+           # LLoss = LegendreLoss(x_biased,bins=self.bins,sbins=self.sbins,order=self.order,norm=self.norm)
             return self.frac*LLoss(pred,target) + mse 
         else:
             if self.backonly:
@@ -245,19 +245,11 @@ class FlatLoss():
                     x_biased = x_biased[:-mod]
                     pred = pred[:-mod]
                     target = target[:-mod] 
-            #testing
             mbins = self.bins
-#            m, morder  = x_biased.sort()
-#            m = m.view(mbins,-1)
-#            dm = m[:,-1] - m[:,0]
-#            m = m.mean(axis=1)
-#            pred = pred[morder].view(mbins,-1).sort(axis=1)[0]
-            pred = pred.view(mbins,-1).sort(axis=1)[0]
-            fitter = LegendreFitter(m=x_biased.view(mbins,-1), power=2) 
+            m,msorted = x_biased.sort()
+            pred = pred[msorted].view(mbins,-1)
+            fitter = LegendreFitter(m=m.view(mbins,-1), power=2) 
             LLoss = LegendreIntegral.apply(pred, fitter, self.sbins)
-            ##
-            #LLoss = LegendreLoss(x_biased,bins=self.bins,sbins=self.sbins,order=self.order,norm=self.norm)
-            #return self.frac*LLoss(pred=pred,target=target) + mse
             return self.frac*LLoss + mse
     def __repr__(self):
         str1 = "Flat Loss: frac/strength={:.2f}/{:.2f}, norm={}, background_only={}, order={}, bins={}, sbins={}".format(self.frac,self.frac/(1-self.frac),self.norm, self.backonly,self.order,self.bins,self.sbins)
@@ -341,3 +333,83 @@ class JiangLoss():  #need to remove numpy later
         self.scores = pred
         return torch.mean(self.weights*(pred-target)**2)
 
+class Disco():
+    def __init__(self,labels,frac,background_only=True,order=1):
+        self.frac = frac
+        self.mse = WeightedMSE(labels)
+        self.backonly = background_only
+        self.order = order
+    def __call__(self,pred,target,x_biased):
+        """
+        Calculate the total loss (flat and MSE.)
+
+
+        Parameters
+        ----------
+        pred : Tensor
+            Tensor of predictions.
+        target : Tensor
+            Tensor of target labels.
+        x_biased : Tensor
+            Tensor of biased feature.
+        """
+        mse = (1-self.frac)*self.mse(pred,target)
+        if self.backonly:
+            mask = target==1
+            x_biased = x_biased[mask]
+            pred = pred[mask]
+            target = target[mask]
+        #ones_frac = self.mse.ones_frac
+        #ones = (target==1).sum()
+        #weights = (target/ones_frac + (1-target))*target.shape[0]/2/(target.shape[0]-ones)
+        weights = torch.ones_like(target)
+        disco = distance_corr(x_biased,pred,weights,power=self.order)
+        return self.frac*disco + mse
+    def __repr__(self):
+        str1 = "DisCo Loss: frac/strength={:.2f}/{:.2f}, order={}".format(self.frac,self.frac/(1-self.frac),self.order)
+        str2 = repr(self.mse)
+        return "\n".join([str1,str2])
+
+
+def distance_corr(var_1,var_2,normedweight,power=1):
+    """var_1: First variable to decorrelate (eg mass)
+    var_2: Second variable to decorrelate (eg classifier output)
+    normedweight: Per-example weight. Sum of weights should add up to N (where N is the number of examples)
+    power: Exponent used in calculating the distance correlation
+
+    va1_1, var_2 and normedweight should all be 1D torch tensors with the same number of entries
+
+    Usage: Add to your loss function. total_loss = BCE_loss + lambda * distance_corr
+    """
+
+
+    xx = var_1.view(-1, 1).repeat(1, len(var_1)).view(len(var_1),len(var_1))
+    yy = var_1.repeat(len(var_1),1).view(len(var_1),len(var_1))
+    amat = (xx-yy).abs()
+
+    xx = var_2.view(-1, 1).repeat(1, len(var_2)).view(len(var_2),len(var_2))
+    yy = var_2.repeat(len(var_2),1).view(len(var_2),len(var_2))
+    bmat = (xx-yy).abs()
+
+    amatavg = torch.mean(amat*normedweight,dim=1)
+    Amat=amat-amatavg.repeat(len(var_1),1).view(len(var_1),len(var_1))\
+        -amatavg.view(-1, 1).repeat(1, len(var_1)).view(len(var_1),len(var_1))\
+        +torch.mean(amatavg*normedweight)
+
+    bmatavg = torch.mean(bmat*normedweight,dim=1)
+    Bmat=bmat-bmatavg.repeat(len(var_2),1).view(len(var_2),len(var_2))\
+        -bmatavg.view(-1, 1).repeat(1, len(var_2)).view(len(var_2),len(var_2))\
+        +torch.mean(bmatavg*normedweight)
+
+    ABavg = torch.mean(Amat*Bmat*normedweight,dim=1)
+    AAavg = torch.mean(Amat*Amat*normedweight,dim=1)
+    BBavg = torch.mean(Bmat*Bmat*normedweight,dim=1)
+
+    if(power==1):
+        dCorr=(torch.mean(ABavg*normedweight))/torch.sqrt((torch.mean(AAavg*normedweight)*torch.mean(BBavg*normedweight)))
+    elif(power==2):
+        dCorr=(torch.mean(ABavg*normedweight))**2/(torch.mean(AAavg*normedweight)*torch.mean(BBavg*normedweight))
+    else:
+        dCorr=((torch.mean(ABavg*normedweight))/torch.sqrt((torch.mean(AAavg*normedweight)*torch.mean(BBavg*normedweight))))**power
+
+    return dCorr

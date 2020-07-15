@@ -30,7 +30,7 @@ def Heaviside(tensor):
 
 
 class LegendreFitter():
-    def __init__(self,mbins=None,m=None,order=0,power=1):
+    def __init__(self,order=0,power=1):
         """
         Object used to fit an array of using Legendre polynomials.
 
@@ -45,23 +45,9 @@ class LegendreFitter():
         power : int, default 1
             Power used in the norm of the difference between the input and the fit. |fit(input) - input|**power
         """
-        if m is None:
-            if mbins is None:
-                raise ValueError("Provide either m or mbins.")
-            mbins = torch.linspace(-1,1,mbins+1) # mass bin edges
-            m  = (mbins[1:] + mbins[:-1])*0.5    # mass bin centers
-            dm = mbins[1:] - mbins[:-1]          # mass bin widths
-        else:
-            if type(m) != torch.Tensor:
-                m = torch.DoubleTensor(m)
-            dm = m.max(axis=1)[0] - m.min(axis=1)[0]  # bin widths for each of the mbins.
-            m  = m.mean(axis=1) # bin centers
-        self.m = m.view(-1)
-        self.dm = dm.view(-1)
-        self.mbins = self.m.shape[0]
         self.power = power
         self.order = order
-
+        self.initialized = False
     def __call__(self,F):
         """
         Fit F with Legendre polynomials and return the fit.
@@ -71,6 +57,8 @@ class LegendreFitter():
         F : torch.Tensor
             Tensor of CDFs F_m(s) has shape (N,mbins) where N is the number of scores 
         """
+        if self.initialized == False:
+            raise Exception("Please run initialize method before calling.")
         a0 = 1/2 * (F*self.dm).sum(axis=-1).view(-1,1) #integrate over mbins
         fit = a0.expand_as(F) # make boradcastable
         if self.order>0:
@@ -81,10 +69,21 @@ class LegendreFitter():
             a2 = 5/2 * (F*p2*self.dm).sum(axis=-1).view(-1,1)
             fit = fit+ a2*p2
         return fit
+    def initialize(self,m,overwrite=True):
+        if overwrite or self.initialized==False:
+            if type(m) != torch.Tensor:
+                m = torch.DoubleTensor(m)
+            dm = m.max(axis=1)[0] - m.min(axis=1)[0]  # bin widths for each of the mbins.
+            m  = m.mean(axis=1) # bin centers
+            self.m = m.view(-1)
+            self.dm = dm.view(-1)
+            self.mbins = self.m.shape[0]
+            self.initialized = True
+        return
 
 class LegendreIntegral(Function): 
     @staticmethod
-    def forward(ctx, input, fitter,sbins=None):
+    def forward(ctx, input, fitter,sbins=None,extra_input=None):
         """
         Calculate the Flat loss of input integral{Norm(F(s)-F_flat(s))} integrating over sbins.
 
@@ -106,7 +105,12 @@ class LegendreIntegral(Function):
         integral = (ds.matmul((F-fitter(F))**fitter.power)).sum(axis=0)/input.shape[0]
         
         F_s_i =  expand_dims_as(input.view(-1),input) #make a flat copy of input and add dimensions for boradcasting
-        F_s_i =  Heaviside(F_s_i-input).sum(axis=-1).double()/input.shape[-1] #sum over bin content to get CDF
+        if extra_input is not None:
+            input_appended = extra_input
+        else:
+            input_appended = input
+
+        F_s_i =  Heaviside(F_s_i-input_appended).sum(axis=-1).double()/input_appended.shape[-1] #sum over bin content to get CDF
         residual = F_s_i - fitter(F_s_i)
         ctx.fitter = fitter
         ctx.residual = residual
@@ -136,7 +140,7 @@ class LegendreIntegral(Function):
             grad_input  = grad_output  \
              * (-power)*(summation)/np.prod(shape)
 
-        return grad_input, None, None
+        return grad_input, None, None, None
 
 class Logger():
     def __init__(self,file="./logs/log.txt",overwrite=True):
@@ -261,9 +265,11 @@ class Metrics():
             R50 = 1/((preds[targets==1]<c).sum()/(targets==1).sum())
             self.R50.append(R50)
             if m is not None:
-                m = np.array(m.tolist()).flatten()*250
-                p, bins = np.histogram(m[targets==1],bins=20,density = True)
+                m = np.array(m.tolist()).flatten()
+                p, bins = np.histogram(m[targets==1],bins=50,density = True)
                 q, _ = np.histogram(m[(targets==1)&(preds<c)],bins=bins,density = True)
+                p = p/p.sum()
+                q = q/q.sum()
                 goodidx = (p!=0)&(q!=0)
                 p = p[goodidx]
                 q = q[goodidx]

@@ -27,7 +27,11 @@ def Heaviside(tensor):
     tensor[tensor<0] = 0
     return tensor
 
-
+def Heaviside_(tensor):
+    tensor.masked_fill_(tensor>0, 1)
+    tensor.masked_fill_(tensor==0, 0.5)
+    tensor.masked_fill_(tensor<0, 0)
+    return
 
 class LegendreFitter():
     def __init__(self,order=0,power=1):
@@ -59,15 +63,15 @@ class LegendreFitter():
         """
         if self.initialized == False:
             raise Exception("Please run initialize method before calling.")
-        a0 = 1/2 * (F*self.dm).sum(axis=-1).view(-1,1) #integrate over mbins
-        fit = a0.expand_as(F) # make boradcastable
+        self.a0 = 1/2 * (F*self.dm).sum(axis=-1).view(-1,1) #integrate over mbins
+        fit = self.a0.expand_as(F) # make boradcastable
         if self.order>0:
-            a1 = 3/2 * (F*self.m*self.dm).sum(axis=-1).view(-1,1)
-            fit = fit + a1*self.m
+            self.a1 = 3/2 * (F*self.m*self.dm).sum(axis=-1).view(-1,1)
+            fit = fit + self.a1*self.m
         if self.order>1:
             p2 = (self.m**2-1)*0.5
-            a2 = 5/2 * (F*p2*self.dm).sum(axis=-1).view(-1,1)
-            fit = fit+ a2*p2
+            self.a2 = 5/2 * (F*p2*self.dm).sum(axis=-1).view(-1,1)
+            fit = fit+ self.a2*p2
         return fit
     def initialize(self,m,overwrite=True):
         if overwrite or self.initialized==False:
@@ -103,14 +107,18 @@ class LegendreIntegral(Function):
 
         F = Heaviside(s-input).sum(axis=-1).double()/input.shape[-1] # get CDF at s from input values
         integral = (ds.matmul((F-fitter(F))**fitter.power)).sum(axis=0)/input.shape[0]
-        
-        F_s_i =  expand_dims_as(input.view(-1),input) #make a flat copy of input and add dimensions for boradcasting
+        del F,s,ds,s_edges
+
+        # Stuff for backward
         if extra_input is not None:
             input_appended = extra_input
         else:
             input_appended = input
 
-        F_s_i =  Heaviside(F_s_i-input_appended).sum(axis=-1).double()/input_appended.shape[-1] #sum over bin content to get CDF
+        F_s_i =  expand_dims_as(input.view(-1),input) #make a flat copy of input and add dimensions for boradcasting
+        F_s_i =  F_s_i-input_appended
+        Heaviside_(F_s_i)
+        F_s_i =  F_s_i.sum(axis=-1).double()/F_s_i.shape[-1] #sum over bin content to get CDF
         residual = F_s_i - fitter(F_s_i)
         ctx.fitter = fitter
         ctx.residual = residual
@@ -171,7 +179,7 @@ class Logger():
         self.file= file
         f = open(self.file,"w")
         f.close()
-    def initialize(self,params,loss,optimizer):
+    def initialize(self,model,params,loss,optimizer,scheduler=None):
         now = datetime.now()
         dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
         f = open(self.file,"a")
@@ -179,8 +187,13 @@ class Logger():
         f.write("Model initialized on: {}\n".format(dt_string))
         maxstr = max([len(key) for key in params.keys()])
         string = '{:^%d}' %(maxstr-1)*len(params)
+        if "device" in params.keys():
+            params["device"] = str(params["device"]).strip() 
         keys = string.format(*params.keys())
         values = PartialFormatter().format(string,*params.values())
+        f.write("**Model**\n")
+        f.write(repr(model))
+        f.write("\n\n")
         f.write("\n".join([keys,values]))
         f.write("\n\n")
         f.write("**Loss**\n")
@@ -189,6 +202,10 @@ class Logger():
         f.write("**Optimizer**\n")
         f.write("".join(repr(optimizer).strip().split("\n")))
         f.write("\n\n")
+        if scheduler:
+            f.write("**Scheduler**\n")
+            f.write("".join(repr(scheduler).strip().split("\n")))
+            f.write("\n\n")
         f.close()
     def entry(self,string):
         f = open(self.file,"a")

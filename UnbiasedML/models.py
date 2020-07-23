@@ -89,8 +89,8 @@ class Classifier(nn.Module):
             metrics = [Metrics(),Metrics(validation=True)]
         if log:
             params = locals()
-            [params.pop(item) for item in ['self','scheduler','device','log',"traindataset","valdataset","optimizer",'loss',"metrics"]]
-            log.initialize(params=params,loss=self.loss,optimizer=self.optimizer)
+            [params.pop(item) for item in ['self','scheduler','log',"traindataset","valdataset","optimizer",'loss',"metrics"]]
+            log.initialize(model=self,params=params,loss=self.loss,optimizer=self.optimizer,scheduler=scheduler)
 
         if valdataset:
             validation_generator = DataLoader(valdataset,batch_size=len(valdataset),shuffle=False)
@@ -100,37 +100,6 @@ class Classifier(nn.Module):
         acc = 0
         print("Entering Training...")
         for epoch in range(1,epochs+1):
-        #Validation and Printing
-            if valdataset:
-                if epoch % interval ==0 or epoch == epochs or epoch==1:
-                    self.train(False)
-                    for x,yval,m in validation_generator:
-                        if device!='cpu':
-                            x,yval,m = x.to(device),yval.to(device),m.to(device)
-                        self.yhat_val = self(x).view(-1)
-                    valloss = WeightedMSE(yval)
-                    l_val = valloss(self.yhat_val,yval)
-                    if epoch != 1:
-                        metrics[0].calculate(pred=self.yhat,target=y,l=l.item())
-                        acc = metrics[0].accs[-1]
-                    metrics[1].calculate(pred=self.yhat_val,target=yval,l=l_val.item(),m=m)
-                    R50 = metrics[1].R50[-1]
-                    JSD = metrics[1].JSD[-1]
-                    acc_val = metrics[1].accs[-1]
-                    entry = 'Epoch:{:04d}/{:04d}  ({t:<5.1f}s)\n Train: loss:{:.4f}, acc:{:.0f}% || Val: loss: {:.4f}, acc:{:.0f}%, R50: {:.4f}, 1/JSD: {:.4f}'.format(
-                epoch,epochs,loss, 100.* acc,
-                l_val.item(), 100.* acc_val,R50,1/JSD,t=time()-t0)
-                    print(entry)
-                    if log is not None:
-                        log.entry(entry)
-            else:
-                if epoch % interval ==0:
-                    acc = metrics[0].accs[-1]
-                    entry = 'Epoch:{:04d}/{:04d} loss: {:.4f}, accuracy:({:.0f}%)'.format(
-                        epoch,epochs,l.item(), 100.* acc)
-                    print(entry)
-                    if log is not None:
-                        log.entry(entry)
            # Feed forward 
             self.loss.m = torch.Tensor().to(device)
             self.loss.pred_long = torch.Tensor().to(device)
@@ -149,8 +118,41 @@ class Classifier(nn.Module):
                 loss = l.item()
                 self.optimizer.step()
                 self.optimizer.zero_grad()
-                if scheduler:
-                    scheduler.step()
+            
+            #Validation and Printing
+            if valdataset:
+                if epoch % interval ==0 or epoch == epochs or epoch==1:
+                    self.train(False)
+                    for x,yval,m in  validation_generator:
+                        break
+                    if device!='cpu':
+                        x,yval,m = x.to(device),yval.to(device),m.to(device)
+                    self.yhat_val = self(x).view(-1)
+                    valloss = WeightedMSE(yval)
+                    l_val = valloss(self.yhat_val,yval)
+                    metrics[0].calculate(pred=self.yhat.data,target=y,l=l.item())
+                    metrics[1].calculate(pred=self.yhat_val.data,target=yval,l=l_val.item(),m=m)
+                    acc = metrics[0].accs[-1]
+                    R50 = metrics[1].R50[-1]
+                    JSD = metrics[1].JSD[-1]
+                    acc_val = metrics[1].accs[-1]
+                    entry = 'Epoch:{:04d}/{:04d}  ({t:<5.1f}s)\n Train: loss:{:.4f}, acc:{:.1f}% || Val: loss: {:.4f}, acc:{:.1f}%, R50: {:.4f}, 1/JSD: {:.4f}'.format(
+                epoch,epochs,loss, 100.* acc,
+                l_val.item(), 100.* acc_val,R50,1/JSD,t=time()-t0)
+                    print(entry)
+                    if log is not None:
+                        log.entry(entry)
+                    if scheduler:
+                        scheduler.step(l_val.item())
+                    del x, yval, m, valloss, l_val, 
+            else:
+                if epoch % interval ==0:
+                    acc = metrics[0].accs[-1]
+                    entry = 'Epoch:{:04d}/{:04d} loss: {:.4f}, accuracy:({:.0f}%)'.format(
+                        epoch,epochs,l.item(), 100.* acc)
+                    print(entry)
+                    if log is not None:
+                        log.entry(entry)
         if log is not None:
             log.finished()
 
@@ -176,9 +178,9 @@ class WeightedMSE():
         return "Weighted MSE:  c0={:.3}   c1={:.3f}".format(1.,1/self.ones_frac)
 
 class FlatLoss():
-    def __init__(self,labels,frac,bins=32,sbins=32,recalculate=True,memory=False,background_only=True,power=2,order=0,msefrac=1):
+    def __init__(self,labels,frac,bins=32,sbins=32,recalculate=True,memory=False,background_only=True,power=2,order=0,msefrac=1,epsilon=0):
         """
-        Wrapper for Legendre Loss and WeightedMSE.
+        Wrapper for Legendre Loss and WeighedMSE.
 
         The total flat loss = frac*LegendreLoss + (1-frac)*WeightedMSE 
 
@@ -213,6 +215,7 @@ class FlatLoss():
         self.recalculate = recalculate
         self.order = order
         self.memory = memory
+        self.epsilon = epsilon
         self.m = torch.Tensor()
         self.pred_long = torch.Tensor()
         self.fitter = LegendreFitter(order=self.order, power=self.power) 
@@ -271,7 +274,7 @@ class FlatLoss():
                 pred = pred[msorted].view(self.bins,-1)
                 self.fitter.initialize(m=m.view(self.bins,-1),overwrite=True)
                 LLoss = LegendreIntegral.apply(pred, self.fitter, self.sbins,None)
-            return self.frac*LLoss + self.msefrac * mse
+            return self.frac*LLoss + self.msefrac * mse  
 
     def __repr__(self):
         str1 = "Flat Loss: frac={:.2f}, power={}, background_only={}, order={}, bins={}, sbins={}".format(self.frac,self.power, self.backonly,self.order,self.bins,self.sbins)

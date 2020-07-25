@@ -96,7 +96,7 @@ class FlatLoss():
                 x_biased = x_biased[:-mod]
                 pred = pred[:-mod]
                 target = target[:-mod] 
-                if weights is not None: weights = wweights[:-mod] #Not used currently 
+                if weights is not None: weights = weights[:-mod] #Not used currently 
         if self.memory:
             self.m = torch.cat([self.m,x_biased])
        #     self.pred_long = torch.cat([self.pred_long,pred])

@@ -120,7 +120,7 @@ class Classifier(nn.Module):
                 elif pass_x_biased==False:
                     l = self.loss(pred=self.yhat,target=y)
                 else:
-                    l = self.loss(pred=self.yhat,target=y,x_biased=m,weights=None) 
+                    l = self.loss(pred=self.yhat,target=y,x_biased=m,weights=weights) 
                 l.backward()
                 loss = l.item()
                 self.optimizer.step()

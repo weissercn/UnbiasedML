@@ -24,8 +24,8 @@ class WeightedMSE():
     def __call__(self,pred,target,weights=None):
         if  weights is None: weights =  1
         if self.labeled:    
-            weights *= target/self.ones_frac + (1-target)
-        return torch.mean(weights*(pred-target)**2)
+            weights_ = weights * (target/self.ones_frac + (1-target))
+        return torch.mean(weights_*(pred-target)**2)
     def __repr__(self):
         return "Weighted MSE:  c0={:.3}   c1={:.3f}".format(1.,1/self.ones_frac)
 
@@ -171,11 +171,14 @@ class Disco():
         if self.backonly:
             mask = target==1
             x_biased = x_biased[mask]
-            weights = weights[mask]
             pred = pred[mask]
             target = target[mask]
+            if weights is not None:
+                weights =  weights[mask]
+            else:
+                weights = torch.ones_like(target)
             del mask
-        disco = distance_corr(x_biased,pred,weights,power=self.power)
+        disco = distance_corr(x_biased,pred,normedweight=weights,power=self.power)
         return self.frac*disco + self.msefrac *mse
     def __repr__(self):
         str1 = "DisCo Loss: frac={:.2f}, order={}".format(self.frac,self.power)

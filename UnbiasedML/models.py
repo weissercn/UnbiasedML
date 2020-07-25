@@ -5,6 +5,8 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from time import time
 from utils import Metrics, find_threshold, LegendreIntegral, LegendreFitter
+from losses import WeightedMSE
+
 
 class Classifier(nn.Module):
     def __init__(self,input_size=10,name=None):
@@ -98,14 +100,19 @@ class Classifier(nn.Module):
         t0 = time()       
         loss = 0
         acc = 0
+        weights = torch.ones(batch_size)
         print("Entering Training...")
         for epoch in range(1,epochs+1):
            # Feed forward 
-            self.loss.m = torch.Tensor().to(device)
-            self.loss.pred_long = torch.Tensor().to(device)
-            for x,y,m in training_generator:
+            #self.loss.m = torch.Tensor().to(device)
+            #self.loss.pred_long = torch.Tensor().to(device)
+            for item in training_generator:
+                if traindataset.weights is not None:
+                    x,y,m,weights = item
+                else:
+                    x,y,m= item
                 if device!='cpu':
-                    x,y,m = x.to(device),y.to(device),m.to(device)
+                    x,y,m,weights = x.to(device),y.to(device),m.to(device), weights.to(device)
                 self.train()
                 self.yhat = self(x).view(-1)
                 if epoch<delay_loss:
@@ -113,7 +120,7 @@ class Classifier(nn.Module):
                 elif pass_x_biased==False:
                     l = self.loss(pred=self.yhat,target=y)
                 else:
-                    l = self.loss(pred=self.yhat,target=y,x_biased=m)
+                    l = self.loss(pred=self.yhat,target=y,x_biased=m,weights=None) 
                 l.backward()
                 loss = l.item()
                 self.optimizer.step()
@@ -147,6 +154,7 @@ class Classifier(nn.Module):
                     del x, yval, m, valloss, l_val, 
             else:
                 if epoch % interval ==0:
+                    metrics[0].calculate(pred=self.yhat.data,target=y,l=l.item())
                     acc = metrics[0].accs[-1]
                     entry = 'Epoch:{:04d}/{:04d} loss: {:.4f}, accuracy:({:.0f}%)'.format(
                         epoch,epochs,l.item(), 100.* acc)
@@ -156,289 +164,3 @@ class Classifier(nn.Module):
         if log is not None:
             log.finished()
 
-
-class WeightedMSE():
-    def __init__(self,labels):
-        """
-        Mean square error loss function. Weighted such as the classifier is agnostic to label composition.
-
-        The weight of the class with label 1 is the number of 0 labels divided by the number of 1 labels. The weight of class 0 is 1.
-
-        Parameters
-        ----------
-        labels : list
-            List of labels used to calculate the composition of the different classes in the dataset.
-        """
-        ones = sum(labels)
-        self.ones_frac = ones/(labels.shape[0]-ones)
-    def __call__(self,pred,target):
-        weights = target/self.ones_frac + (1-target)
-        return torch.mean(weights*(pred-target)**2)
-    def __repr__(self):
-        return "Weighted MSE:  c0={:.3}   c1={:.3f}".format(1.,1/self.ones_frac)
-
-class FlatLoss():
-    def __init__(self,labels,frac,bins=32,sbins=32,recalculate=True,memory=False,background_only=True,power=2,order=0,msefrac=1,epsilon=0):
-        """
-        Wrapper for Legendre Loss and WeighedMSE.
-
-        The total flat loss = frac*LegendreLoss + (1-frac)*WeightedMSE 
-
-        Parameters
-        ----------
-        labels : list
-            List of labels passed to WeightedMSE to calculate the proportion of class labels.
-        frac : float=[0,1]
-            Between 0 and 1. Used to determine the relative strength of the flat part of the loss the MSE. 
-            Loss = frac*(LegendreLoss) + (1-frac)WeightedMSE 
-            frac = strength/(1+strength)
-        bins : int
-            Number of bins in the biased feature to integrate over.
-        sbins : int
-            Number of bins of scores values.
-        recalculate : bool, default True
-            If True, integrate over biased feature locally i.e. on a per batch basis. Otherwise only calculate the biased feature Legendre polynomials once and integrate over it globally.
-        background_only : bool, default True
-            If True, only try to flatten the response of background events (label 1.) Otherwise, flatten the response for both classes at the same time.
-        power : int, default 2
-            Power used to calculate the flat part of the loss. E.g. L2: LegendreLoss=mean((F(s)-F_flat(s))**2)
-        order : int={0,1,2}, default 1
-            Order up tp which the Legendre expansion is computed.
-        """
-        self.frac = frac
-        self.msefrac = msefrac
-        self.mse = WeightedMSE(labels)
-        self.bins = bins
-        self.sbins = sbins
-        self.backonly = background_only
-        self.power = power
-        self.recalculate = recalculate
-        self.order = order
-        self.memory = memory
-        self.epsilon = epsilon
-        self.m = torch.Tensor()
-        self.pred_long = torch.Tensor()
-        self.fitter = LegendreFitter(order=self.order, power=self.power) 
-    def __call__(self,pred,target,x_biased):
-        """
-        Calculate the total loss (flat and MSE.)
-
-
-        Parameters
-        ----------
-        pred : Tensor
-            Tensor of predictions.
-        target : Tensor
-            Tensor of target labels.
-        x_biased : Tensor
-            Tensor of biased feature.
-        """
-        mse = self.mse(pred,target)
-        if not self.recalculate: #broken for now
-            if self.backonly:
-                truthmask = target==1
-                mod = truthmask.sum()%self.bins
-                if mod !=0:
-                    pred = pred[truthmask][:-mod]
-                    target = target[truthmask][:-mod]
-                    x_biased = x_biased[truthmask][:-mod]
-                else:
-                    pred = pred[truthmask]
-                    target = target[truthmask]
-                    x_biased = x_biased[truthmask]
-           # LLoss = LegendreLoss(x_biased,bins=self.bins,sbins=self.sbins,order=self.order,norm=self.norm)
-            return self.frac*LLoss(pred,target) + mse 
-        else:
-            if self.backonly:
-                mask = target==1
-                x_biased = x_biased[mask]
-                pred = pred[mask]
-                target = target[mask]
-                mod = x_biased.shape[0]%self.bins
-                if mod !=0:
-                    x_biased = x_biased[:-mod]
-                    pred = pred[:-mod]
-                    target = target[:-mod] 
-            if self.memory:
-                self.m = torch.cat([self.m,x_biased])
-                self.pred_long = torch.cat([self.pred_long,pred])
-                self.pred_long = self.pred_long.detach()
-                m,msorted = self.m.sort()
-                pred_long = self.pred_long[msorted].view(self.bins,-1)
-                self.fitter.initialize(m=m.view(self.bins,-1),overwrite=True)
-                m,msorted = x_biased.sort()
-                pred = pred[msorted].view(self.bins,-1)
-                LLoss = LegendreIntegral.apply(pred, self.fitter, self.sbins,pred_long)
-            else:
-                m,msorted = x_biased.sort()
-                pred = pred[msorted].view(self.bins,-1)
-                self.fitter.initialize(m=m.view(self.bins,-1),overwrite=True)
-                LLoss = LegendreIntegral.apply(pred, self.fitter, self.sbins,None)
-            return self.frac*LLoss + self.msefrac * mse  
-
-    def __repr__(self):
-        str1 = "Flat Loss: frac={:.2f}, power={}, background_only={}, order={}, bins={}, sbins={}".format(self.frac,self.power, self.backonly,self.order,self.bins,self.sbins)
-        str2 = repr(self.mse)
-        return "\n".join([str1,str2])
-    def reset(self):
-        self.pred_long = torch.Tesnor()
-        self.m = torch.Tesnor()
-        return 
-#class LegendreLoss():
-#    def __init__(self,x_biased,bins=32,norm="L2",sbins=100,order=1):
-#        """
-#        Calculate the n-th order Legendre expansions of the CDF of the predictions as a function of the biased feature and tries to minimize the difference between the Legendre expansion and the CDF of the predicted scores across bins of the biased feature.
-#
-#        Bins x_biased into number_bins = bins. Calculate cumsum of the scores in every bin and integrates the ith cumsum across bins of mass with legendre polynomials to find the coefficients of the expansion.
-#        Then calculates the norm of the difference between the cumsum and its legendre expansion.
-#
-#        Parameters
-#        ----------
-#        x_biased : Tensor or Array or List
-#            Vector of the biased feature.
-#        bins : int, default 32
-#            Number of bins in biased feature to integrate over.
-#        norm : string={'L1','L2'}, default 'L2'
-#            Norm used to calculate the difference between cumsum and its legendre exapnsion.
-#        sbins : int, default 100
-#            Number of score (ypred) bins to use.
-#        order : int, default 1
-#            The maximum order of legendre polynomial to compute. 
-#        """
-#        self.mass, self.ordered_mass = torch.sort(x_biased)
-#        self.dm = (self.mass.view(bins,-1)[:,-1] - self.mass.view(bins,-1)[:,0]).view(-1)
-#        self.m = self.mass.view(bins,-1).mean(axis=1).view(-1)
-#        self.p0 = 1
-#        self.p1 = self.m
-#        self.p2 = (self.m**2-1)/2
-#        self.bins = bins
-#        self.sbins = sbins
-#        self.norm = norm
-#        self.order = order
-#    def __call__(self,pred,target):   
-#        pred_bins = pred[self.ordered_mass].view(self.bins,-1)
-#        self.s = torch.linspace(pred.min().item(),pred.max().item(),self.sbins).view(-1,1,1)
-#        self.s.requires_grad_(True)
-#        self.F = (self.s>pred_bins.sort(axis=1)[0]).sum(axis=2).float()/self.m.shape[0] 
-#        a0 = 1/2 * (self.F*self.dm).sum(axis=1).view(-1,1)
-#        self.legendre = a0
-#        if self.order>0:
-#            a1 = 3/2 * (self.F*self.p1*self.dm).sum(axis=1).view(-1,1)
-#            self.legendre = a0 +  a1*self.p1
-#        if self.order>1:
-#            a2 = 5/2 * (self.F*self.p2*self.dm).sum(axis=1).view(-1,1)
-#            self.legendre += a2*self.p2
-#        if self.norm == "L2":
-#            legendre_loss = ((self.F - self.legendre)**2).mean()
-#        elif self.norm == "L1":
-#            legendre_loss = torch.abs(self.F - self.legendre).mean()
-#        else:
-#            raise ValueError("{} is not a valid norm. Choose L1 or L2.hex".format(self.norm))
-#        breakpoint()
-#        return legendre_loss
-
-    
-class JiangLoss():  #need to remove numpy later
-    def __init__(self,truth,x_biased,eta=1e-3,range=(0.25,0.75)):
-        self.gx = (x_biased<rang[1])&(x_biased>range[0])
-        self.ytrue = (truth==1)
-        self.Z_g = self.gx.sum()/x_biased.size
-        self.P_g = (self.ytrue&self.gx).sum()/x_biased.size
-        self.P_x = (self.ytrue).sum()/x_biased.size
-        self.cx = (self.gx/self.Z_g -1)
-        self.lambda1 = 0
-        self.weights = np.ones_like(y_train)
-        self.eta = eta 
-        self.scores = torch.from_numpy(np.random.randint(0,2,size=x_biased.size))
-    def __call__(self,pred,target):
-        self.weights = np.array(self.weights.tolist()).flatten()
-        self.delta =  (np.array(self.scores.tolist()).flatten()*self.cx).mean()      
-        self.lambda1 -= self.eta*self.delta
-        weights_ = np.exp(self.lambda1*self.cx)
-        self.weights[y_train==1] = (weights_/(1+weights_))[y_train==1]
-        self.weights[y_train==0] = (1/(1+weights_))[y_train==0]
-        self.weights = torch.from_numpy(self.weights).view(-1,1)
-        self.scores = pred
-        return torch.mean(self.weights*(pred-target)**2)
-
-class Disco():
-    def __init__(self,labels,frac,background_only=True,order=1,msefrac=1):
-        self.frac = frac
-        self.msefrac = msefrac
-        self.mse = WeightedMSE(labels)
-        self.backonly = background_only
-        self.order = order
-    def __call__(self,pred,target,x_biased):
-        """
-        Calculate the total loss (flat and MSE.)
-
-
-        Parameters
-        ----------
-        pred : Tensor
-            Tensor of predictions.
-        target : Tensor
-            Tensor of target labels.
-        x_biased : Tensor
-            Tensor of biased feature.
-        """
-        mse = self.mse(pred,target)
-        if self.backonly:
-            mask = target==1
-            x_biased = x_biased[mask]
-            pred = pred[mask]
-            target = target[mask]
-        #ones_frac = self.mse.ones_frac
-        #ones = (target==1).sum()
-        #weights = (target/ones_frac + (1-target))*target.shape[0]/2/(target.shape[0]-ones)
-        weights = torch.ones_like(target)
-        disco = distance_corr(x_biased,pred,weights,power=self.order)
-        return self.frac*disco + self.msefrac *mse
-    def __repr__(self):
-        str1 = "DisCo Loss: frac={:.2f}, order={}".format(self.frac,self.order)
-        str2 = repr(self.mse)
-        return "\n".join([str1,str2])
-
-
-def distance_corr(var_1,var_2,normedweight,power=1):
-    """var_1: First variable to decorrelate (eg mass)
-    var_2: Second variable to decorrelate (eg classifier output)
-    normedweight: Per-example weight. Sum of weights should add up to N (where N is the number of examples)
-    power: Exponent used in calculating the distance correlation
-
-    va1_1, var_2 and normedweight should all be 1D torch tensors with the same number of entries
-
-    Usage: Add to your loss function. total_loss = BCE_loss + lambda * distance_corr
-    """
-
-
-    xx = var_1.view(-1, 1).repeat(1, len(var_1)).view(len(var_1),len(var_1))
-    yy = var_1.repeat(len(var_1),1).view(len(var_1),len(var_1))
-    amat = (xx-yy).abs()
-
-    xx = var_2.view(-1, 1).repeat(1, len(var_2)).view(len(var_2),len(var_2))
-    yy = var_2.repeat(len(var_2),1).view(len(var_2),len(var_2))
-    bmat = (xx-yy).abs()
-
-    amatavg = torch.mean(amat*normedweight,dim=1)
-    Amat=amat-amatavg.repeat(len(var_1),1).view(len(var_1),len(var_1))\
-        -amatavg.view(-1, 1).repeat(1, len(var_1)).view(len(var_1),len(var_1))\
-        +torch.mean(amatavg*normedweight)
-
-    bmatavg = torch.mean(bmat*normedweight,dim=1)
-    Bmat=bmat-bmatavg.repeat(len(var_2),1).view(len(var_2),len(var_2))\
-        -bmatavg.view(-1, 1).repeat(1, len(var_2)).view(len(var_2),len(var_2))\
-        +torch.mean(bmatavg*normedweight)
-
-    ABavg = torch.mean(Amat*Bmat*normedweight,dim=1)
-    AAavg = torch.mean(Amat*Amat*normedweight,dim=1)
-    BBavg = torch.mean(Bmat*Bmat*normedweight,dim=1)
-
-    if(power==1):
-        dCorr=(torch.mean(ABavg*normedweight))/torch.sqrt((torch.mean(AAavg*normedweight)*torch.mean(BBavg*normedweight)))
-    elif(power==2):
-        dCorr=(torch.mean(ABavg*normedweight))**2/(torch.mean(AAavg*normedweight)*torch.mean(BBavg*normedweight))
-    else:
-        dCorr=((torch.mean(ABavg*normedweight))/torch.sqrt((torch.mean(AAavg*normedweight)*torch.mean(BBavg*normedweight))))**power
-
-    return dCorr

@@ -242,11 +242,13 @@ class PartialFormatter(string.Formatter):
 
 
 class DataSet(Dataset):
-    def __init__(self, samples,labels,m=None):
+    def __init__(self, samples,labels,m=None,weights=None):
         'Initialization'
         self.labels = labels
         self.samples = samples
         self.m = m
+        self.weights = weights
+         
     def __len__(self):
         return len(self.labels)
 
@@ -254,11 +256,12 @@ class DataSet(Dataset):
         # Select sample
         X = self.samples[index]
         y = self.labels[index]
+        out = [X,y]
         if self.m is not None:
-            return X, y, self.m[index]
-        else:
-            return X, y, 0
-
+            out.append(self.m[index])
+        if self.weights is not None:
+            out.append(self.weights[index])
+        return out
 class Metrics():
     def __init__(self,validation=False):
         self.validation = validation

@@ -30,7 +30,7 @@ class WeightedMSE():
         return "Weighted MSE:  c0={:.3}   c1={:.3f}".format(1.,1/self.ones_frac)
 
 class FlatLoss():
-    def __init__(self,labels,frac,bins=32,sbins=32,memory=False,background_only=True,power=2,order=0,msefrac=1,epsilon=0):
+    def __init__(self,labels,frac,bins=32,sbins=32,memory=False,background_only=True,power=2,order=0,msefrac=1,lambd=None,max_slope=None):
         """
         Wrapper for Legendre Loss and WeighedMSE.
 
@@ -66,7 +66,8 @@ class FlatLoss():
         self.power = power
         self.order = order
         self.memory = memory
-        self.epsilon = epsilon
+        self.lambd = lambd
+        self.max_slope = max_slope
         self.m = torch.Tensor()
         self.pred_long = torch.Tensor()
         self.fitter = LegendreFitter(order=self.order, power=self.power) 
@@ -99,19 +100,19 @@ class FlatLoss():
                 if weights is not None: weights = weights[:-mod] #Not used currently 
         if self.memory:
             self.m = torch.cat([self.m,x_biased])
-       #     self.pred_long = torch.cat([self.pred_long,pred])
-       #     self.pred_long = self.pred_long.detach()
-       #     m,msorted = self.m.sort()
-       #     pred_long = self.pred_long[msorted].view(self.bins,-1)
-       #     self.fitter.initialize(m=m.view(self.bins,-1),overwrite=True)
-       #     m,msorted = x_biased.sort()
-       #     pred = pred[msorted].view(self.bins,-1)
-       #     LLoss = LegendreIntegral.apply(pred, self.fitter, self.sbins,pred_long)
+            self.pred_long = torch.cat([self.pred_long,pred])
+            self.pred_long = self.pred_long.detach()
+            m,msorted = self.m.sort()
+            pred_long = self.pred_long[msorted].view(self.bins,-1)
+            self.fitter.initialize(m=m.view(self.bins,-1),overwrite=True)
+            m,msorted = x_biased.sort()
+            pred = pred[msorted].view(self.bins,-1)
+            LLoss = LegendreIntegral.apply(pred, self.fitter, self.sbins,pred_long,lambd=self.lambd,max_slope=self.max_slope)
         else:
             m,msorted = x_biased.sort()
             pred = pred[msorted].view(self.bins,-1)
             self.fitter.initialize(m=m.view(self.bins,-1),overwrite=True)
-            LLoss = LegendreIntegral.apply(pred, self.fitter, self.sbins,None)
+            LLoss = LegendreIntegral.apply(pred, self.fitter, self.sbins,lambd=self.lambd,max_slope=self.max_slope)
         return self.msefrac*mse + self.frac* LLoss 
 
     def __repr__(self):

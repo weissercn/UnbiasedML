@@ -92,7 +92,7 @@ class LegendreFitter():
 
 class LegendreIntegral(Function): 
     @staticmethod
-    def forward(ctx, input, fitter,sbins=None,extra_input=None):
+    def forward(ctx, input,weights, fitter,sbins=None,extra_input=None):
         """
         Calculate the Flat loss of input integral{Norm(F(s)-F_flat(s))} integrating over sbins.
 
@@ -109,9 +109,9 @@ class LegendreIntegral(Function):
         s = (s_edges[1:] + s_edges[:-1])*0.5
         s = expand_dims_as(s,input)
         ds = s_edges[1:] - s_edges[:-1]
-
+        ctx.weights = weights.sum(axis=-1)/weights.shape[1]
         F = Heaviside(s-input).sum(axis=-1).double()/input.shape[-1] # get CDF at s from input values
-        integral = (ds.matmul((F-fitter(F))**fitter.power)).sum(axis=0)/input.shape[0] # not exactly right with max_slope
+        integral = (ds.matmul((F-fitter(F))**fitter.power)*ctx.weights).sum(axis=0)/input.shape[0] # not exactly right with max_slope
         del F,s,ds,s_edges
 
         # Stuff for backward
@@ -161,7 +161,7 @@ class LegendreIntegral(Function):
             if lambd is not None:
                 summation += lambd*2/np.prod(shape) *9/4* ctx.fitter.a1.view(shape)*(m*dm).view(-1,1)
 
-            grad_input  = grad_output * summation 
+            grad_input  = grad_output * summation * torch.repeat_interleave(ctx.weights,shape[1]).view(shape)
 
         return grad_input, None, None, None, None
 

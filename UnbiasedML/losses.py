@@ -70,7 +70,7 @@ class FlatLoss():
         self.max_slope = max_slope
         self.m = torch.Tensor()
         self.pred_long = torch.Tensor()
-        self.fitter = LegendreFitter(order=self.order, power=self.power) 
+        self.fitter = LegendreFitter(order=self.order, power=self.power,lambd=self.lambd,max_slope=self.max_slope) 
     def __call__(self,pred,target,x_biased,weights=None):
         """
         Calculate the total loss (flat and MSE.)
@@ -107,12 +107,12 @@ class FlatLoss():
             self.fitter.initialize(m=m.view(self.bins,-1),overwrite=True)
             m,msorted = x_biased.sort()
             pred = pred[msorted].view(self.bins,-1)
-            LLoss = LegendreIntegral.apply(pred, self.fitter, self.sbins,pred_long,lambd=self.lambd,max_slope=self.max_slope)
+            LLoss = LegendreIntegral.apply(pred, self.fitter, self.sbins,pred_long)
         else:
             m,msorted = x_biased.sort()
             pred = pred[msorted].view(self.bins,-1)
             self.fitter.initialize(m=m.view(self.bins,-1),overwrite=True)
-            LLoss = LegendreIntegral.apply(pred, self.fitter, self.sbins,lambd=self.lambd,max_slope=self.max_slope)
+            LLoss = LegendreIntegral.apply(pred, self.fitter, self.sbins)
         return self.msefrac*mse + self.frac* LLoss 
 
     def __repr__(self):

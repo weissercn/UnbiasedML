@@ -34,7 +34,7 @@ def Heaviside_(tensor):
     return
 
 class LegendreFitter():
-    def __init__(self,order=0,power=1):
+    def __init__(self,order=0,power=1,lambd=None,max_slope=None):
         """
         Object used to fit an array of using Legendre polynomials.
 
@@ -51,8 +51,10 @@ class LegendreFitter():
         """
         self.power = power
         self.order = order
+        self.lambd = lambd
+        self.max_slope = max_slope
         self.initialized = False
-    def __call__(self,F,max_slope=None):
+    def __call__(self,F):
         """
         Fit F with Legendre polynomials and return the fit.
 
@@ -67,8 +69,8 @@ class LegendreFitter():
         fit = self.a0.expand_as(F) # make boradcastable
         if self.order>0:
             self.a1 = 3/2 * (F*self.m*self.dm).sum(axis=-1).view(-1,1)
-            if max_slope is not None:
-                fit = fit + max_slope*torch.tanh(self.a1)*self.m
+            if self.max_slope is not None:
+                fit = fit + self.max_slope*torch.tanh(self.a1/self.max_slope)*self.m
             else:
                 fit = fit + self.a1*self.m
         if self.order>1:
@@ -90,7 +92,7 @@ class LegendreFitter():
 
 class LegendreIntegral(Function): 
     @staticmethod
-    def forward(ctx, input, fitter,sbins=None,extra_input=None,lambd=None,max_slope=None):
+    def forward(ctx, input, fitter,sbins=None,extra_input=None):
         """
         Calculate the Flat loss of input integral{Norm(F(s)-F_flat(s))} integrating over sbins.
 
@@ -109,7 +111,7 @@ class LegendreIntegral(Function):
         ds = s_edges[1:] - s_edges[:-1]
 
         F = Heaviside(s-input).sum(axis=-1).double()/input.shape[-1] # get CDF at s from input values
-        integral = (ds.matmul((F-fitter(F,max_slope=max_slope))**fitter.power)).sum(axis=0)/input.shape[0] # not exactly right with max_slope
+        integral = (ds.matmul((F-fitter(F))**fitter.power)).sum(axis=0)/input.shape[0] # not exactly right with max_slope
         del F,s,ds,s_edges
 
         # Stuff for backward
@@ -122,11 +124,9 @@ class LegendreIntegral(Function):
         F_s_i =  F_s_i-input_appended
         Heaviside_(F_s_i)
         F_s_i =  F_s_i.sum(axis=-1).double()/F_s_i.shape[-1] #sum over bin content to get CDF
-        residual = F_s_i - fitter(F_s_i,max_slope=max_slope)
+        residual = F_s_i - fitter(F_s_i)
         ctx.fitter = fitter
         ctx.residual = residual
-        ctx.lambd = lambd
-        ctx.max_slope = max_slope
         ctx.shape = input.shape
         return integral
     
@@ -134,7 +134,8 @@ class LegendreIntegral(Function):
     def backward(ctx, grad_output):
         grad_input = None
         shape = ctx.shape
-        lambd = ctx.lambd
+        lambd = ctx.fitter.lambd
+        max_slope = ctx.fitter.max_slope
         power = ctx.fitter.power
         order = ctx.fitter.order
         dm = ctx.fitter.dm
@@ -148,12 +149,12 @@ class LegendreIntegral(Function):
             summation = first_term + second_term
 
             if order >0:
-                if ctx.max_slope is None:
+                if max_slope is None:
                     third_term  = (ctx.residual*m).sum(axis=-1).view(shape) * (dm*m).view(-1,1) * -1.5
                     summation += third_term
                 else:
                     third_term  = (ctx.residual*m).sum(axis=-1).view(shape) * (dm*m).view(-1,1) * -1.5 *\
-                            ctx.max_slope * (1/torch.cosh(ctx.fitter.a1))**2
+                             (1/torch.cosh(ctx.fitter.a1.view(shape)/max_slope))**2
                     summation += third_term
 
             summation *= (-power)/np.prod(shape)
@@ -261,7 +262,14 @@ class DataSet(Dataset):
         self.labels = labels
         self.samples = samples
         self.m = m
-        self.weights = weights
+        if len(samples)!=len(labels):
+            raise ValueError(f"should have the same number of samples({len(samples)}) as there are labels({len(labels)})")
+        if weights is None:
+            self.weights = np.ones_like(labels)
+        else:
+            if len(weights)!=len(labels):
+                raise ValueError(f"should have the same number of weights({len(weights)}) as there are samples({len(labels)})")
+            self.weights = weights
          
     def __len__(self):
         return len(self.labels)
@@ -270,12 +278,9 @@ class DataSet(Dataset):
         # Select sample
         X = self.samples[index]
         y = self.labels[index]
-        out = [X,y]
-        if self.m is not None:
-            out.append(self.m[index])
-        if self.weights is not None:
-            out.append(self.weights[index])
-        return out
+        m = self.m[index] if self.m is not None else self.m
+        w = self.weights[index]
+        return  X,y,m,w
 class Metrics():
     def __init__(self,validation=False):
         self.validation = validation

@@ -100,17 +100,13 @@ class Classifier(nn.Module):
         t0 = time()       
         loss = 0
         acc = 0
-        weights = torch.ones(batch_size)
         print("Entering Training...")
         for epoch in range(1,epochs+1):
            # Feed forward 
             #self.loss.m = torch.Tensor().to(device)
             #self.loss.pred_long = torch.Tensor().to(device)
             for item in training_generator:
-                if traindataset.weights is not None:
-                    x,y,m,weights = item
-                else:
-                    x,y,m= item
+                x,y,m,weights = item
                 if device!='cpu':
                     x,y,m,weights = x.to(device),y.to(device),m.to(device), weights.to(device)
                 self.train()
@@ -130,7 +126,7 @@ class Classifier(nn.Module):
             if valdataset:
                 if epoch % interval ==0 or epoch == epochs or epoch==1:
                     self.train(False)
-                    for x,yval,m in  validation_generator:
+                    for x,yval,m,_ in  validation_generator:
                         break
                     if device!='cpu':
                         x,yval,m = x.to(device),yval.to(device),m.to(device)

@@ -107,6 +107,7 @@ class FlatLoss():
             self.fitter.initialize(m=m.view(self.bins,-1),overwrite=True)
             m,msorted = x_biased.sort()
             pred = pred[msorted].view(self.bins,-1)
+            if weights is not None:weights = weights[msorted].view(self.bins,-1) 
             LLoss = LegendreIntegral.apply(pred, weights, self.fitter, self.sbins,pred_long)
         else:
             m,msorted = x_biased.sort()

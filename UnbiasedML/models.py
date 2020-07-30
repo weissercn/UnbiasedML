@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader
 from time import time
 from utils import Metrics, find_threshold, LegendreIntegral, LegendreFitter
 from losses import WeightedMSE
-
+import gc
 
 class Classifier(nn.Module):
     def __init__(self,input_size=10,name=None):
@@ -30,9 +30,6 @@ class Classifier(nn.Module):
         #self.linear3 = nn.Linear(64,128)
         self.out = nn.Linear(64,1)
         # Defaults
-        self.optimizer = torch.optim.SGD(self.parameters(),lr=1e-3)
-        self.yhat_val = None
-        self.yhat = None
         self.name = name
     def forward(self, x):
         x = nn.functional.relu(self.linear(x))
@@ -44,7 +41,7 @@ class Classifier(nn.Module):
         x = torch.sigmoid(self.out(x))
         return x
 
-    def fit(self,traindataset,epochs=200,batch_size=None, shuffle=False, num_workers=None, optimizer=None,scheduler=None,loss=None,interval=100,valdataset=None,drop_last=False,metrics=None,delay_loss=False,pass_x_biased=False,device='cpu',log=None):
+    def fit(self,traindataset,epochs=200,batch_size=None, shuffle=False, num_workers=None, optimizer=None,scheduler=None,loss=None,interval=100,valdataset=None,drop_last=False,metrics=None,delay_loss=False,pass_x_biased=False,device='cpu',log=None,verbose=True):
         """
         Fit model to traindataset. 
 
@@ -83,16 +80,16 @@ class Classifier(nn.Module):
         log : Logger
             Logging object.     
         """
-        if optimizer:
-            self.optimizer = optimizer
+        if optimizer is None:
+            optimizer = torch.optim.Adam(self.parameters(),lr=1e-3)
         if loss:
             self.loss = loss
         if metrics is None:
             metrics = [Metrics(),Metrics(validation=True)]
         if log:
             params = locals()
-            [params.pop(item) for item in ['self','scheduler','log',"traindataset","valdataset","optimizer",'loss',"metrics"]]
-            log.initialize(model=self,params=params,loss=self.loss,optimizer=self.optimizer,scheduler=scheduler)
+            [params.pop(item) for item in ['self','scheduler','log',"traindataset","verbose","valdataset","optimizer",'loss',"metrics"]]
+            log.initialize(model=self,params=params,loss=self.loss,optimizer=optimizer,scheduler=scheduler)
 
         if valdataset:
             validation_generator = DataLoader(valdataset,batch_size=len(valdataset),shuffle=False)
@@ -100,6 +97,7 @@ class Classifier(nn.Module):
         t0 = time()       
         loss = 0
         acc = 0
+        self.losses = []
         print("Entering Training...")
         for epoch in range(1,epochs+1):
            # Feed forward 
@@ -110,47 +108,52 @@ class Classifier(nn.Module):
                 if device!='cpu':
                     x,y,m,weights = x.to(device),y.to(device),m.to(device), weights.to(device)
                 self.train()
-                self.yhat = self(x).view(-1)
+                yhat = self(x).view(-1)
                 if epoch<delay_loss:
-                    l = torch.nn.MSELoss()(self.yhat,y)
+                    l = torch.nn.MSELoss()(yhat,y)
                 elif pass_x_biased==False:
-                    l = self.loss(pred=self.yhat,target=y)
+                    l = self.loss(pred=yhat,target=y)
                 else:
-                    l = self.loss(pred=self.yhat,target=y,x_biased=m,weights=weights) 
+                    l = self.loss(pred=yhat,target=y,x_biased=m,weights=weights) 
                 l.backward()
-                loss = l.item()
-                self.optimizer.step()
-                self.optimizer.zero_grad()
+                self.losses.append(l.item())  #delete later
+                metrics[0].losses.append(l.item())
+                optimizer.step()
+                optimizer.zero_grad()
             
             #Validation and Printing
             if valdataset:
                 if epoch % interval ==0 or epoch == epochs or epoch==1:
                     self.train(False)
-                    for x,yval,m,_ in  validation_generator:
+                    for x,yval,m_val,_ in  validation_generator:
                         break
                     if device!='cpu':
-                        x,yval,m = x.to(device),yval.to(device),m.to(device)
-                    self.yhat_val = self(x).view(-1)
+                        x,yval,m_val = x.to(device),yval.to(device),m_val.to(device)
+                    yhat_val = self(x).view(-1)
                     valloss = WeightedMSE(yval)
-                    l_val = valloss(self.yhat_val,yval)
-                    metrics[0].calculate(pred=self.yhat.data,target=y,l=l.item())
-                    metrics[1].calculate(pred=self.yhat_val.data,target=yval,l=l_val.item(),m=m)
-                    acc = metrics[0].accs[-1]
-                    R50 = metrics[1].R50[-1]
-                    JSD = metrics[1].JSD[-1]
-                    acc_val = metrics[1].accs[-1]
-                    entry = 'Epoch:{:04d}/{:04d}  ({t:<5.1f}s)\n Train: loss:{:.4f}, acc:{:.1f}% || Val: loss: {:.4f}, acc:{:.1f}%, R50: {:.4f}, 1/JSD: {:.4f}'.format(
-                epoch,epochs,loss, 100.* acc,
-                l_val.item(), 100.* acc_val,R50,1/JSD,t=time()-t0)
-                    print(entry)
-                    if log is not None:
-                        log.entry(entry)
+                    l_val = valloss(yhat_val,yval)
+                    metrics[0].calculate(pred=yhat.data,target=y,m=m)
+                    metrics[1].calculate(pred=yhat_val.data,target=yval,m=m_val,l=l_val.item())
+                    if verbose or log is not None:    
+                        acc = metrics[0].accs[-1]
+                        R50 = metrics[1].R50[-1]
+                        JSD = metrics[1].JSD[-1]
+                        acc_val = metrics[1].accs[-1]
+                        entry = 'Epoch:{:04d}/{:04d}  ({t:<5.1f}s)\n'.format(epoch,epochs,t=time()-t0) +\
+                                ' Train: loss:{:.4f}, acc:{:.1f}%'.format(l.item(),100*acc) +\
+                                ' || Val: loss: {:.4f}, acc:{:.1f}%, R50: {:.4f}, 1/JSD: {:.4f}'.format(
+                    l_val.item(), 100.* acc_val,R50,1/JSD)
+                        if verbose:
+                            print(entry)
+                        if log is not None:
+                            log.entry(entry)
                     if scheduler:
                         scheduler.step(l_val.item())
-                    del x, yval, m, valloss, l_val, 
+                    del x, yval, m, valloss, l_val, m_val, _ 
+                    self.yhat_val = yhat_val.data.cpu()
             else:
                 if epoch % interval ==0:
-                    metrics[0].calculate(pred=self.yhat.data,target=y,l=l.item())
+                    metrics[0].calculate(pred=yhat.data,target=y,l=l.item())
                     acc = metrics[0].accs[-1]
                     entry = 'Epoch:{:04d}/{:04d} loss: {:.4f}, accuracy:({:.0f}%)'.format(
                         epoch,epochs,l.item(), 100.* acc)
@@ -159,4 +162,5 @@ class Classifier(nn.Module):
                         log.entry(entry)
         if log is not None:
             log.finished()
-
+        del l,y,weights,item, yhat, yhat_val, optimizer
+        torch.cuda.empty_cache()

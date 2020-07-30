@@ -1,10 +1,15 @@
 from datetime import datetime
 import numpy as np
+from scipy.stats import entropy
 import os
 from torch.utils.data import Dataset
 import string
 from torch.autograd import Function
 import torch
+
+
+def swish(x):
+    return x* torch.sigmoid(x)
 
 def expand_dims(tensor, loc, ntimes=1):
     if ntimes != 1:
@@ -159,7 +164,8 @@ class LegendreIntegral(Function):
 
             summation *= (-power)/np.prod(shape)
             if lambd is not None:
-                summation += lambd*2/np.prod(shape) *9/4* ctx.fitter.a1.view(shape)*(m*dm).view(-1,1)
+                summation += -lambd*2/np.prod(shape) *\
+                3/2* ctx.fitter.a1.view(shape)*(m*dm).view(-1,1)
 
             grad_input  = grad_output * summation * torch.repeat_interleave(ctx.weights,shape[1]).view(shape)
 
@@ -297,23 +303,17 @@ class Metrics():
         acc = (preds.round()==targets).sum()/targets.shape[0]
         signal_efficiency = ((preds.round()==targets)&(targets==1)).sum()/(targets==1).sum()
         background_efficiency = ((preds.round()==targets)&(targets==0)).sum()/(targets==0).sum()
-
-
         if self.validation:
             c = find_threshold(preds,(targets==0),0.5)
             R50 = 1/((preds[targets==1]<c).sum()/(targets==1).sum())
             self.R50.append(R50)
             if m is not None:
                 m = np.array(m.tolist()).flatten()
-                p, bins = np.histogram(m[targets==1],bins=50,density = True)
-                q, _ = np.histogram(m[(targets==1)&(preds<c)],bins=bins,density = True)
-                p = p/p.sum()
-                q = q/q.sum()
-                goodidx = (p!=0)&(q!=0)
-                p = p[goodidx]
-                q = q[goodidx]
-                JSD = np.sum(.5*(p*np.log2(p)+q*np.log2(q)-(p+q)*np.log2((p+q)*0.5)))#*(bins[1]-bins[0])
+                hist1, bins = np.histogram(m[(targets==1)&(preds>c)],bins=50,density=True)
+                hist2, _ = np.histogram(m[(targets==1)&(preds<c)],bins=bins,density=True)
+                JSD = 0.5*(entropy(hist1,0.5*(hist1+hist2),base=2)+entropy(hist2,0.5*(hist1+hist2),base=2))
                 self.JSD.append(JSD)
+            efficiencies = np.linspace(0.1,0.9,9)
         self.accs.append(acc)
         self.signalE.append(signal_efficiency)
         self.backgroundE.append(background_efficiency)

@@ -86,7 +86,7 @@ class LegendreFitter():
             p2 = (3*self.m**2-1)*0.5
             self.a2 = 5/2 * (F*p2*self.dm).sum(axis=-1).view(-1,1)
             if self.monotonic:
-                fit = fit + self.a1*torch.tanh(self.a2/self.a1)*self.p2
+                fit = fit + self.a1*torch.tanh(self.a2/self.a1)*p2
             else:
                 fit = fit+ self.a2*p2
         return fit
@@ -155,7 +155,7 @@ class LegendreIntegral(Function):
         m = ctx.fitter.m
         a0 = ctx.fitter.a0.view(shape)
         if ctx.needs_input_grad[0]:
-            dF = ctx.residual[torch.repeat_interleave(torch.eye(shape[0],dtype=bool),shape[1],axis=0)].view(shape)
+            dF = ctx.residual[torch.eye(shape[0],dtype=bool).repeat_interleave(shape[1],axis=0)].view(shape)
             dF0 = -.5 * ctx.residual.sum(axis=-1).view(shape) * dm.view(-1,1)
             summation = dF + dF0
             if order >0:

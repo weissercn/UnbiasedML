@@ -92,7 +92,7 @@ class Classifier(nn.Module):
             log.initialize(model=self,params=params,loss=self.loss,optimizer=optimizer,scheduler=scheduler)
 
         if valdataset:
-            validation_generator = DataLoader(valdataset,batch_size=len(valdataset),shuffle=False)
+            validation_generator = DataLoader(valdataset,batch_size=len(valdataset),shuffle=True)
         training_generator = DataLoader(traindataset, batch_size=batch_size, shuffle=shuffle,num_workers=num_workers,drop_last=drop_last)
         t0 = time()       
         loss = 0
@@ -125,13 +125,12 @@ class Classifier(nn.Module):
             if valdataset:
                 if epoch % interval ==0 or epoch == epochs or epoch==1:
                     self.train(False)
-                    for x,yval,m_val,_ in  validation_generator:
+                    for x,yval,m_val,weights in  validation_generator:
                         break
                     if device!='cpu':
                         x,yval,m_val = x.to(device),yval.to(device),m_val.to(device)
                     yhat_val = self(x).view(-1)
-                    valloss = WeightedMSE(yval)
-                    l_val = valloss(yhat_val,yval)
+                    l_val  = WeightedMSE(yval)(pred=yhat_val,target=yval)
                     metrics[0].calculate(pred=yhat.data,target=y,m=m)
                     metrics[1].calculate(pred=yhat_val.data,target=yval,m=m_val,l=l_val.item())
                     if verbose or log is not None:    
@@ -149,7 +148,7 @@ class Classifier(nn.Module):
                             log.entry(entry)
                     if scheduler:
                         scheduler.step(l_val.item())
-                    del x, yval, m, valloss, l_val, m_val, _ 
+                    del x, yval, m, l_val, m_val, weights 
                     self.yhat_val = yhat_val.data.cpu()
             else:
                 if epoch % interval ==0:
@@ -162,5 +161,5 @@ class Classifier(nn.Module):
                         log.entry(entry)
         if log is not None:
             log.finished()
-        del l,y,weights,item, yhat, yhat_val, optimizer
+        del l,y,item, yhat, yhat_val, optimizer
         torch.cuda.empty_cache()

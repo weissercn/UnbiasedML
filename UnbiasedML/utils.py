@@ -23,8 +23,8 @@ def expand_dims(tensor, loc, ntimes=1):
         return tensor.unsqueeze(loc)
 
 def expand_dims_as(t1,t2):
-    result = t1[(...,)+(None,)*t2.dim()] 
-    return result 
+    result = t1[(...,)+(None,)*t2.dim()]
+    return result
 
 def Heaviside(tensor):
     tensor[tensor>0] = 1
@@ -39,7 +39,7 @@ def Heaviside_(tensor):
     return
 
 class LegendreFitter():
-    def __init__(self,order=0,power=1,lambd=None,max_slope=None):
+    def __init__(self,order=0,power=1,lambd=None,max_slope=None,monotonic=False):
         """
         Object used to fit an array of using Legendre polynomials.
 
@@ -58,7 +58,11 @@ class LegendreFitter():
         self.order = order
         self.lambd = lambd
         self.max_slope = max_slope
+        self.monotonic = monotonic
         self.initialized = False
+        self.a0 = None
+        self.a1 = None
+        self.a2 = None
     def __call__(self,F):
         """
         Fit F with Legendre polynomials and return the fit.
@@ -66,7 +70,7 @@ class LegendreFitter():
         Parameters
         ----------
         F : torch.Tensor
-            Tensor of CDFs F_m(s) has shape (N,mbins) where N is the number of scores 
+            Tensor of CDFs F_m(s) has shape (N,mbins) where N is the number of scores
         """
         if self.initialized == False:
             raise Exception("Please run initialize method before calling.")
@@ -79,9 +83,12 @@ class LegendreFitter():
             else:
                 fit = fit + self.a1*self.m
         if self.order>1:
-            p2 = (self.m**2-1)*0.5
+            p2 = (3*self.m**2-1)*0.5
             self.a2 = 5/2 * (F*p2*self.dm).sum(axis=-1).view(-1,1)
-            fit = fit+ self.a2*p2
+            if self.monotonic:
+                fit = fit + self.a1*torch.tanh(self.a2/self.a1)*self.p2
+            else:
+                fit = fit+ self.a2*p2
         return fit
     def initialize(self,m,overwrite=True):
         if overwrite or self.initialized==False:
@@ -95,7 +102,7 @@ class LegendreFitter():
             self.initialized = True
         return
 
-class LegendreIntegral(Function): 
+class LegendreIntegral(Function):
     @staticmethod
     def forward(ctx, input,weights, fitter,sbins=None,extra_input=None):
         """
@@ -141,27 +148,38 @@ class LegendreIntegral(Function):
         shape = ctx.shape
         lambd = ctx.fitter.lambd
         max_slope = ctx.fitter.max_slope
+        monotonic = ctx.fitter.monotonic
         power = ctx.fitter.power
         order = ctx.fitter.order
         dm = ctx.fitter.dm
         m = ctx.fitter.m
+        a0 = ctx.fitter.a0.view(shape)
         if ctx.needs_input_grad[0]:
-            first_term = ctx.residual[torch.repeat_interleave(torch.eye(shape[0],dtype=bool),shape[1],axis=0)]
-            # repeat_interleave is like numpy.repeat it repeats entries along some axis.
-            first_term  = first_term.view(shape)
-            second_term = ctx.residual.sum(axis=-1)
-            second_term = second_term.view(shape) * dm.view(-1,1) * -0.5
-            summation = first_term + second_term
-
+            dF = ctx.residual[torch.repeat_interleave(torch.eye(shape[0],dtype=bool),shape[1],axis=0)].view(shape)
+            dF0 = -.5 * ctx.residual.sum(axis=-1).view(shape) * dm.view(-1,1)
+            summation = dF + dF0
             if order >0:
+                a1 = ctx.fitter.a1.view(shape)
                 if max_slope is None:
-                    third_term  = (ctx.residual*m).sum(axis=-1).view(shape) * (dm*m).view(-1,1) * -1.5
-                    summation += third_term
+                    dF1  = -1.5 * (ctx.residual*m).sum(axis=-1).view(shape) * (dm*m).view(-1,1)
+                    summation += dF1
                 else:
-                    third_term  = (ctx.residual*m).sum(axis=-1).view(shape) * (dm*m).view(-1,1) * -1.5 *\
-                             (1/torch.cosh(ctx.fitter.a1.view(shape)/max_slope))**2
-                    summation += third_term
-
+                    dF1   = -1.5 * (ctx.residual*m).sum(axis=-1).view(shape) * (dm*m).view(-1,1) *\
+                             (1/torch.cosh(a1/max_slope))**2
+                    summation += dF1
+            if order>1:
+                a2 = ctx.fitter.a2.view(shape)
+                if not monotonic:
+                    dF2   = -2.5* (ctx.residual*.5*(3*m**2-1)).sum(axis=-1).view(shape) *\
+                            (dm*0.5*(3*m**2-1)).view(-1,1)
+                    summation += dF2
+                else:
+                    dF2   = (ctx.residual*.5*(3*m**2-1)).sum(axis=-1).view(shape) *\
+                            (dm*0.5*(3*m**2-1)).view(-1,1) *\
+                            (1/torch.cosh(a2/a1)**2*(-2.5*dm*0.5*(3*m**2-1)).view(-1,1)+1.5*a2/a1*(dm*m).view(-1,1) +\
+                            -1.5*(dm*m).view(-1,1)*(torch.tanh(a2/a1)))
+                    summation += dF2
+                    
             summation *= (-power)/np.prod(shape)
             if lambd is not None:
                 summation += -lambd*2/np.prod(shape) *\
@@ -209,7 +227,7 @@ class Logger():
         maxstr = max([len(key) for key in params.keys()])
         string = '{:^%d}' %(maxstr-1)*len(params)
         if "device" in params.keys():
-            params["device"] = str(params["device"]).strip() 
+            params["device"] = str(params["device"]).strip()
         keys = string.format(*params.keys())
         values = PartialFormatter().format(string,*params.values())
         f.write("**Model**\n")
@@ -276,7 +294,7 @@ class DataSet(Dataset):
             if len(weights)!=len(labels):
                 raise ValueError(f"should have the same number of weights({len(weights)}) as there are samples({len(labels)})")
             self.weights = weights
-         
+       
     def __len__(self):
         return len(self.labels)
 
@@ -313,7 +331,6 @@ class Metrics():
                 hist2, _ = np.histogram(m[(targets==1)&(preds<c)],bins=bins,density=True)
                 JSD = 0.5*(entropy(hist1,0.5*(hist1+hist2),base=2)+entropy(hist2,0.5*(hist1+hist2),base=2))
                 self.JSD.append(JSD)
-            efficiencies = np.linspace(0.1,0.9,9)
         self.accs.append(acc)
         self.signalE.append(signal_efficiency)
         self.backgroundE.append(background_efficiency)

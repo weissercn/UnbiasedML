@@ -30,7 +30,7 @@ class WeightedMSE():
         return "Weighted MSE:  c0={:.3}   c1={:.3f}".format(1.,1/self.ones_frac)
 
 class FlatLoss():
-    def __init__(self,labels,frac,bins=32,sbins=32,memory=False,background_only=True,power=2,order=0,msefrac=1,lambd=None,max_slope=None):
+    def __init__(self,labels,frac,bins=32,sbins=32,memory=False,background_only=True,power=2,order=0,msefrac=1,lambd=None,max_slope=None,monotonic=False):
         """
         Wrapper for Legendre Loss and WeighedMSE.
 
@@ -67,10 +67,11 @@ class FlatLoss():
         self.order = order
         self.memory = memory
         self.lambd = lambd
+        self.monotonic = monotonic
         self.max_slope = max_slope
         self.m = torch.Tensor()
         self.pred_long = torch.Tensor()
-        self.fitter = LegendreFitter(order=self.order, power=self.power,lambd=self.lambd,max_slope=self.max_slope) 
+        self.fitter = LegendreFitter(order=order, power=power,lambd=lambd,max_slope=max_slope,monotonic=monotonic) 
     def __call__(self,pred,target,x_biased,weights=None):
         """
         Calculate the total loss (flat and MSE.)
@@ -112,7 +113,7 @@ class FlatLoss():
         else:
             m,msorted = x_biased.sort()
             pred = pred[msorted].view(self.bins,-1)
-            if weights is not None:weights = weights[msorted].view(self.bins,-1) 
+            if weights is not None:weights = weights[msorted].view(self.bins,-1)
             self.fitter.initialize(m=m.view(self.bins,-1),overwrite=True)
             LLoss = LegendreIntegral.apply(pred,weights, self.fitter, self.sbins)
         return self.msefrac*mse + self.frac* LLoss 

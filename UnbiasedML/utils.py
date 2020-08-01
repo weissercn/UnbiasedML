@@ -117,12 +117,12 @@ class LegendreIntegral(Function):
         sbins : int
             Number of s bins to use in the integral.
         """
-        s_edges = torch.linspace(0,1,sbins+1,dtype=torch.double).to(input.device) #create s edges to integrate over
+        s_edges = torch.linspace(0,1,sbins+1,dtype=input.dtype).to(input.device) #create s edges to integrate over
         s = (s_edges[1:] + s_edges[:-1])*0.5
         s = expand_dims_as(s,input)
         ds = s_edges[1:] - s_edges[:-1]
         ctx.weights = weights.sum(axis=-1)/weights.shape[1]
-        F = Heaviside(s-input).sum(axis=-1).double()/input.shape[-1] # get CDF at s from input values
+        F = Heaviside(s-input).sum(axis=-1)/input.shape[-1] # get CDF at s from input values
         integral = (ds.matmul((F-fitter(F))**fitter.power)*ctx.weights).sum(axis=0)/input.shape[0] # not exactly right with max_slope
         del F,s,ds,s_edges
 
@@ -135,7 +135,7 @@ class LegendreIntegral(Function):
         F_s_i =  expand_dims_as(input.view(-1),input) #make a flat copy of input and add dimensions for boradcasting
         F_s_i =  F_s_i-input_appended
         Heaviside_(F_s_i)
-        F_s_i =  F_s_i.sum(axis=-1).double()/F_s_i.shape[-1] #sum over bin content to get CDF
+        F_s_i =  F_s_i.sum(axis=-1)/F_s_i.shape[-1] #sum over bin content to get CDF
         residual = F_s_i - fitter(F_s_i)
         ctx.fitter = fitter
         ctx.residual = residual

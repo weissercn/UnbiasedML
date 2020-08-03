@@ -39,7 +39,7 @@ def Heaviside_(tensor):
     return
 
 class LegendreFitter():
-    def __init__(self,order=0,power=1,lambd=None,max_slope=None,monotonic=False):
+    def __init__(self,order=0,power=1,lambd=None,max_slope=None,monotonic=False,eps=1e-8):
         """
         Object used to fit an array of using Legendre polynomials.
 
@@ -57,6 +57,7 @@ class LegendreFitter():
         self.power = power
         self.order = order
         self.lambd = lambd
+        self.eps   = eps
         self.max_slope = max_slope
         self.monotonic = monotonic
         self.initialized = False
@@ -86,7 +87,7 @@ class LegendreFitter():
             p2 = (3*self.m**2-1)*0.5
             self.a2 = 5/2 * (F*p2*self.dm).sum(axis=-1).view(-1,1)
             if self.monotonic:
-                fit = fit + self.a1*torch.tanh(self.a2/self.a1)*p2
+                fit = fit + self.a1*torch.tanh(self.a2/(self.a1+self.eps))*p2
             else:
                 fit = fit+ self.a2*p2
         return fit
@@ -149,6 +150,7 @@ class LegendreIntegral(Function):
         lambd = ctx.fitter.lambd
         max_slope = ctx.fitter.max_slope
         monotonic = ctx.fitter.monotonic
+        eps = ctx.fitter.eps
         power = ctx.fitter.power
         order = ctx.fitter.order
         dm = ctx.fitter.dm
@@ -176,8 +178,8 @@ class LegendreIntegral(Function):
                 else:
                     dF2   = (ctx.residual*.5*(3*m**2-1)).sum(axis=-1).view(shape) *\
                             (dm*0.5*(3*m**2-1)).view(-1,1) *\
-                            (1/torch.cosh(a2/a1)**2*(-2.5*dm*0.5*(3*m**2-1)).view(-1,1)+1.5*a2/a1*(dm*m).view(-1,1) +\
-                            -1.5*(dm*m).view(-1,1)*(torch.tanh(a2/a1)))
+                            (1/torch.cosh(a2/(a1+eps))**2*(-2.5*dm*0.5*(3*m**2-1)).view(-1,1)+1.5*a2/(a1+eps)*(dm*m).view(-1,1) +\
+                            -1.5*(dm*m).view(-1,1)*(torch.tanh(a2/(a1+eps))))
                     summation += dF2
                     
             summation *= (-power)/np.prod(shape)

@@ -30,7 +30,7 @@ class WeightedMSE():
         return "Weighted MSE:  c0={:.3}   c1={:.3f}".format(1.,1/self.ones_frac)
 
 class FlatLoss():
-    def __init__(self,labels,frac,bins=32,sbins=32,memory=False,background_only=True,power=2,order=0,msefrac=1,lambd=None,max_slope=None,monotonic=False):
+    def __init__(self,labels,frac,bins=32,sbins=32,memory=False,background_only=True,power=2,order=0,msefrac=1,lambd=None,max_slope=None,monotonic=False,eps=1e-4):
         """
         Wrapper for Legendre Loss and WeighedMSE.
 
@@ -69,9 +69,10 @@ class FlatLoss():
         self.lambd = lambd
         self.monotonic = monotonic
         self.max_slope = max_slope
+        self.eps = eps
         self.m = torch.Tensor()
         self.pred_long = torch.Tensor()
-        self.fitter = LegendreFitter(order=order, power=power,lambd=lambd,max_slope=max_slope,monotonic=monotonic) 
+        self.fitter = LegendreFitter(order=order, power=power,lambd=lambd,max_slope=max_slope,monotonic=monotonic,eps=eps) 
     def __call__(self,pred,target,x_biased,weights=None):
         """
         Calculate the total loss (flat and MSE.)
